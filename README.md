@@ -1,77 +1,160 @@
 # PCSC Analytic Web App Sample
 
-Executable Reference Specification for the PCSC analytics Web App login, authorization, state ownership, and report-access flow.
+Executable Reference Specification for the PCSC analytics Web App **Store Device Binding、Human Login、Authorization、State Ownership 與 Report Access** flow.
 
-> This repository is **not** a production IAM / BI implementation. It translates the confirmed business scenarios into a reviewable specification, state machine, state-ownership contract, adapter contracts, acceptance scenarios, and an interactive Mock Web App for PIC / implementation teams.
+> This repository is **not** a production IAM / BI implementation. It translates confirmed business scenarios into a reviewable specification, state machine, adapter contracts, acceptance scenarios, and an interactive Mock Web App for PIC / implementation teams.
 
 ## Entry points
 
 - **Specification SSOT:** [`SPEC.md`](./SPEC.md)
 - **Interactive Sample:** [`sample/`](./sample/)
 - **GitHub Pages:** `https://manson-ku.github.io/pcsc-analytic-webapp-sample/sample/`
+- **Device Binding Detail:** [`docs/07-store-device-binding-v0.3.md`](./docs/07-store-device-binding-v0.3.md)
 
-The repository includes `.github/workflows/pages.yml` for automatic deployment from `main`.
+## v0.3 核心決議
 
-## What this repository means
-
-```text
-SPEC.md
-= Business Requirements + Acceptance Criteria + State Ownership SSOT
-
-sample/
-= Executable behavior reference + State Machine Inspector
-
-docs/
-= Detailed state machine / interface / assumption / data-boundary notes
-
-Production implementation
-= PIC / PCSC implementation-team responsibility
-```
-
-The sample separates four business contexts:
-
-1. **Store Context** — which store context the current device/session represents.
-2. **Human Identity** — who the current human user is.
-3. **Authorization** — which stores that person is allowed to access.
-4. **Selected Store** — which authorized store the UI is currently requesting/showing.
-
-It also separates three runtime ownership layers:
+門市裝置的 Store Context 不再以模糊的「WebSC 裝置」假設表示，而是明確定義為：
 
 ```text
-Client / Browser
-→ owns interaction / proposed state
-
-Server / BFF / Session / Enterprise Identity Layer
-→ owns verified identity and authorization truth
-
-Trusted Data / BI Layer
-→ owns final row-access enforcement
+首次綁定
+→ 使用門市 Google Workspace 帳號驗證
+→ Google account map 到唯一 storeCode
+→ Server 建立 Store Device Binding
 ```
 
-Core principle:
+之後 App 進站時：
 
-> **Client owns interaction state; Server owns identity and authorization truth; Data layer owns final row-access enforcement.**
+```text
+BOOT
+→ Server resolve Device Binding
+→ Binding ACTIVE
+→ verified Store Context
+→ General Store Report
+```
 
-## Core business rules
+因此四個概念必須分離：
 
-- General store reports can be shown from Store Context without requiring every store employee to sign in personally.
-- Sensitive reports require a separate Human Identity step.
-- Company SSO login success does **not** automatically grant report authorization.
-- Store manager / area advisor access is based on `allowed_store_codes`, not the physical store or device currently in use.
-- Store Context may define the initial Selected Store only when that store is already authorized.
-- Human-session timeout on a shared WebSC clears Human Identity / Authorization and returns to the store general report without clearing Store Context.
-- Frontend filters, URL parameters, cookies, local state, or Looker Studio filters are not authorization truth.
-- Production data access must enforce the equivalent of `requested_store_code ∈ allowed_store_codes` in a trusted server / data layer.
+```text
+Store Google Account Login
+!= Store Device Binding
+!= Human Session
+!= Human Authorization
+```
+
+尤其：
+
+```text
+logoutHuman() != unbindDevice()
+IDLE_TIMEOUT != unbindDevice()
+```
+
+店長退出機敏 Human Session 後，已綁定的門市裝置仍保持 Store Context，回到該店一般報表。
+
+只有明確的：
+
+```text
+UNBIND_DEVICE
+```
+
+才解除門市 Device Binding。
+
+## Sample 可以怎麼測
+
+```text
+情境 A：已綁定 A 店的裝置
+→ BOOT resolve Device Binding=A001
+→ 直接看到 A 店一般報表
+→ 王店長 Human Login
+→ Allowed Stores=A/B
+→ Sensitive Mode
+→ Human Logout / Timeout
+→ Device Binding 仍為 A001
+→ 回 A 店一般報表
+```
+
+```text
+情境 B：尚未綁定的裝置
+→ Device Binding=NONE
+→ 可以選：
+   1. 用 A 店門市 Google 帳號完成 Mock Binding
+   2. 不綁定，直接做 Human Login 看自己的機敏報表
+```
+
+Sample 也提供獨立的「解除門市 Device Binding（Demo）」操作，用來驗證它與 Human Logout 是兩個不同事件。
+
+## State Ownership
+
+```text
+Browser / Web App
+────────────────────
+Interaction State
+- requestedView
+- selectedStoreCode
+- UI preferences
+- request bind / unbind
+        │
+        ▼
+Server / BFF / Session
+────────────────────
+Authoritative State
+- Device Binding
+- verified Store Context
+- Human Identity
+- Human Session
+- role
+- allowedStoreCodes
+- sensitive session expiry
+        │
+        ▼
+Data / BI Layer
+────────────────────
+Final Enforcement
+- requestedStore in allowedStores
+- BigQuery RLS / Authorized View / ACL
+- Looker Studio presentation
+```
+
+核心原則：
+
+> **Client owns interaction state; Server owns Device Binding, identity and authorization truth; Data layer owns final row-access enforcement.**
+
+## Provider / Adapter Contracts
+
+Reference v0.3 需要四個主要能力：
+
+```text
+StoreAccountResolver
+StoreDeviceBindingProvider
+HumanIdentityProvider
+AuthorizationProvider
+```
+
+詳細：[`docs/03-adapter-contract-v0.1.md`](./docs/03-adapter-contract-v0.1.md)
+
+## 「店長帳號 = 門市帳號」
+
+即使正式環境最後使用相同 Google account 做兩個流程，也必須把它們視為兩次不同 purpose 的驗證：
+
+```text
+Store Binding Ceremony
+→ 建立 / 驗證 Device Binding
+
+Human Ceremony
+→ 建立 Human Sensitive Session
+```
+
+所以店長 Human Logout 不應解除 Device Binding。
+
+但如果該 Google account 是多人共用門市帳號，它本身不能唯一證明是哪一位自然人；如果機敏權限需要 person-level ACL，Production 仍需取得唯一 `userId` 的額外個人驗證來源。
 
 ## Repository layout
 
 ```text
 SPEC.md
-index.html
-.nojekyll
-.github/
-  workflows/
-    pages.yml
+sample/
+  index.html
+  app.js
+  styles.css
 docs/
   01-login-state-machine-v0.1.md
   02-scenario-sequence-v0.1.md
@@ -79,114 +162,44 @@ docs/
   04-assumption-register-v0.1.md
   05-report-data-boundary-v0.1.md
   06-state-ownership-runtime-v0.2.md
-sample/
-  index.html
-  app.js
-  styles.css
+  07-store-device-binding-v0.3.md
+.github/workflows/pages.yml
 ```
 
-## State Machine Inspector
+## Production responsibility boundary
 
-The right-hand Inspector in the Sample exposes four review views:
+Reference Sample / specification defines：
 
 ```text
-Current State
-→ current browser-side runtime snapshot
-
-Machine JSON
-→ states / events / transitions / guards / adapters
-
-Ownership
-→ which state belongs to Client, Server, or Data Layer
-
-Guards
-→ live evaluation of sensitive-access guards
+Business Scenario
+Device Binding semantics
+State Machine
+State Ownership
+Adapter Contracts
+Acceptance Criteria
+Mock Report behavior
 ```
 
-The Sample executes all Mock state in Browser JavaScript because GitHub Pages is static. This is an executable explanation of the contract, **not** the proposed Production security architecture.
-
-For Production state placement and mutation rules, see [`docs/06-state-ownership-runtime-v0.2.md`](./docs/06-state-ownership-runtime-v0.2.md).
-
-## Interactive acceptance scenarios
-
-The Sample is intended to be reviewed by both the analysis/business team and PIC developers.
+PIC / PCSC Production implementation owns：
 
 ```text
-AC-01 A 店 WebSC → A 店一般 Mock 報表，無個人登入
-AC-02 王店長登入 → Allowed Stores=A/B，A 店 WebSC 預設 A
-AC-03 王店長 → 可以切 B，不應取得 C/D
-AC-04 陳區顧問個人公司電腦 → 無 Store Context 仍可登入並看 A/B/C/D
-AC-05 未授權公司使用者 → SSO identity success, authorization denied
-AC-06 Shared WebSC timeout → 清 Human Session，保留 A 店 Store Context
-AC-07 非 Allowed Store 的資料請求 → 必須由正式 data layer 拒絕
+Google Workspace / SSO implementation
+Store Google Account → storeCode mapping SSOT
+Device Binding persistence / revoke / rotation
+Human Identity implementation
+user → role → allowed stores SSOT
+Server-side authorization
+BigQuery RLS / Authorized Views / ACL
+Looker Studio integration
+Audit / logging
+Optional MDM / Device Trust hardening
 ```
-
-Full acceptance criteria are defined in [`SPEC.md`](./SPEC.md).
-
-## Run locally
-
-No build step is required.
-
-```bash
-git clone https://github.com/Manson-Ku/pcsc-analytic-webapp-sample.git
-cd pcsc-analytic-webapp-sample
-python -m http.server 8080
-```
-
-Then open:
-
-```text
-http://localhost:8080/
-```
-
-The root page redirects to `/sample/`.
-
-## Integration boundary
-
-The sample uses Mock providers only. A future implementation team should replace the following contracts with existing PCSC / PIC enterprise systems without changing the business state machine:
-
-```text
-StoreIdentityProvider
-HumanIdentityProvider
-AuthorizationProvider
-```
-
-Potential production path:
-
-```text
-Browser Interaction State
-        ↓
-Server-side Identity / Session / Authorization
-        ↓
-trusted server-side access check
-        ↓
-BigQuery RLS / Authorized Views / existing enterprise data ACL
-        ↓
-Looker Studio or other BI presentation layer
-```
-
-The exact Google Workspace / SSO, AOM mapping, Server Session, BigQuery RLS, Looker Studio embedding, token, and credential architecture is intentionally left pluggable.
-
-See:
-
-- [`docs/03-adapter-contract-v0.1.md`](./docs/03-adapter-contract-v0.1.md)
-- [`docs/05-report-data-boundary-v0.1.md`](./docs/05-report-data-boundary-v0.1.md)
-- [`docs/06-state-ownership-runtime-v0.2.md`](./docs/06-state-ownership-runtime-v0.2.md)
-
-## Mock data policy
-
-All names, accounts, store codes, KPIs, revenue values, rankings, and report values in `sample/` are **DEMO / MOCK DATA**. They exist only to make the business scenarios executable and reviewable.
 
 ## Status
 
-- Executable Reference Specification: `v0.2`
-- Interactive Mock Report Sample: implemented
-- State Machine Inspector: implemented
-- State Ownership / Runtime Contract: implemented
-- GitHub Pages deployment: active
-- Production SSO / IAM: out of scope
-- Production Server Session / BFF design: PIC / implementation-team decision
-- Production BigQuery RLS: PIC / implementation-team responsibility
-- Production Looker Studio / BI integration: PIC / implementation-team responsibility
-- Device trust / MDM integration: out of scope / TBD
-- Human-session timeout value: configurable / TBD
+```text
+Executable Reference Spec: v0.3
+Interactive Sample: implemented
+Store Google Account Device Binding: specified + mocked
+Production IAM / RLS / BI: out of scope
+```
