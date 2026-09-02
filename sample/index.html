@@ -199,6 +199,7 @@
             <button class="inspector-tab active" data-inspector-tab="current">Current State</button>
             <button class="inspector-tab" data-inspector-tab="machine">Machine JSON</button>
             <button class="inspector-tab" data-inspector-tab="ownership">Ownership</button>
+            <button class="inspector-tab" data-inspector-tab="storage">Storage</button>
             <button class="inspector-tab" data-inspector-tab="integration">Integration Map</button>
             <button class="inspector-tab" data-inspector-tab="guards">Guards</button>
           </div>
@@ -251,6 +252,50 @@
     "proof": "verified store Google Workspace identity",
     "result": "server-side Device Binding",
     "note": "Google login session itself is not the Device Binding"
+  }
+}</pre>
+          </section>
+
+          <section class="inspector-panel hidden" data-inspector-panel="storage">
+            <div class="json-title">REFERENCE STORAGE RECOMMENDATION</div>
+            <pre class="json-view">{
+  "note": "建議的是 state 類型與 persistence class，不綁死 Redis / SQL / Firestore 等產品",
+  "clientInteractionState": {
+    "examples": ["requestedView", "selectedStoreCode", "UI filters"],
+    "recommended": "Browser memory / route; sessionStorage only when useful",
+    "durability": "ephemeral",
+    "securityTruth": false
+  },
+  "uxPreference": {
+    "examples": ["lastSelectedStore", "sidebar state"],
+    "recommended": "localStorage or non-sensitive cookie",
+    "durability": "optional",
+    "securityTruth": false
+  },
+  "storeDeviceBinding": {
+    "recommended": "durable server-side Binding Store / enterprise DB",
+    "browser": "opaque binding/session id only; preferably HttpOnly + Secure + SameSite",
+    "durability": "long-lived until revoke / expiry",
+    "securityTruth": true
+  },
+  "humanSensitiveSession": {
+    "recommended": "server-side Session Store or server-verified IdP session/token",
+    "browser": "opaque session id / verified token",
+    "durability": "short-lived + idle timeout",
+    "securityTruth": true
+  },
+  "authorization": {
+    "recommended": "AOM / HR / ACL authoritative SSOT; optional short-TTL server cache",
+    "durability": "re-resolvable, avoid browser persistence as truth",
+    "securityTruth": true
+  },
+  "storeAccountMapping": {
+    "recommended": "authoritative mapping table/service: Google identity → storeCode",
+    "securityTruth": true
+  },
+  "dataAccess": {
+    "recommended": "Trusted API / BigQuery RLS / Authorized View / existing ACL",
+    "purpose": "final row-scope enforcement"
   }
 }</pre>
           </section>
