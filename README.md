@@ -1,41 +1,25 @@
 # PCSC Analytic Web App Sample
 
-Executable Reference Specification for the PCSC analytics Web App login, authorization, and report-access flow.
+Executable Reference Specification for the PCSC analytics Web App login, authorization, state ownership, and report-access flow.
 
-> This repository is **not** a production IAM / BI implementation. It translates the confirmed business scenarios into a reviewable specification, state machine, adapter contracts, acceptance scenarios, and an interactive Mock Web App for PIC / implementation teams.
+> This repository is **not** a production IAM / BI implementation. It translates the confirmed business scenarios into a reviewable specification, state machine, state-ownership contract, adapter contracts, acceptance scenarios, and an interactive Mock Web App for PIC / implementation teams.
 
 ## Entry points
 
 - **Specification SSOT:** [`SPEC.md`](./SPEC.md)
 - **Interactive Sample:** [`sample/`](./sample/)
-- **Expected GitHub Pages URL:** `https://manson-ku.github.io/pcsc-analytic-webapp-sample/`
+- **GitHub Pages:** `https://manson-ku.github.io/pcsc-analytic-webapp-sample/sample/`
 
 The repository includes `.github/workflows/pages.yml` for automatic deployment from `main`.
-
-### One-time GitHub Pages activation
-
-GitHub requires the repository owner to enable Pages once before the workflow token can deploy the site.
-
-In GitHub:
-
-```text
-Repository
-→ Settings
-→ Pages
-→ Build and deployment
-→ Source: GitHub Actions
-```
-
-After this one-time setting is enabled, re-run the `Deploy GitHub Pages` workflow or push any new commit to `main`. Future `main` updates deploy automatically.
 
 ## What this repository means
 
 ```text
 SPEC.md
-= Business Requirements + Acceptance Criteria SSOT
+= Business Requirements + Acceptance Criteria + State Ownership SSOT
 
 sample/
-= Executable behavior reference
+= Executable behavior reference + State Machine Inspector
 
 docs/
 = Detailed state machine / interface / assumption / data-boundary notes
@@ -44,12 +28,29 @@ Production implementation
 = PIC / PCSC implementation-team responsibility
 ```
 
-The sample separates four concerns that must not be conflated:
+The sample separates four business contexts:
 
 1. **Store Context** — which store context the current device/session represents.
 2. **Human Identity** — who the current human user is.
 3. **Authorization** — which stores that person is allowed to access.
-4. **Selected Store** — which authorized store the UI is currently showing.
+4. **Selected Store** — which authorized store the UI is currently requesting/showing.
+
+It also separates three runtime ownership layers:
+
+```text
+Client / Browser
+→ owns interaction / proposed state
+
+Server / BFF / Session / Enterprise Identity Layer
+→ owns verified identity and authorization truth
+
+Trusted Data / BI Layer
+→ owns final row-access enforcement
+```
+
+Core principle:
+
+> **Client owns interaction state; Server owns identity and authorization truth; Data layer owns final row-access enforcement.**
 
 ## Core business rules
 
@@ -59,7 +60,7 @@ The sample separates four concerns that must not be conflated:
 - Store manager / area advisor access is based on `allowed_store_codes`, not the physical store or device currently in use.
 - Store Context may define the initial Selected Store only when that store is already authorized.
 - Human-session timeout on a shared WebSC clears Human Identity / Authorization and returns to the store general report without clearing Store Context.
-- Frontend filters, URL parameters, or Looker Studio filters are UX controls, not data authorization.
+- Frontend filters, URL parameters, cookies, local state, or Looker Studio filters are not authorization truth.
 - Production data access must enforce the equivalent of `requested_store_code ∈ allowed_store_codes` in a trusted server / data layer.
 
 ## Repository layout
@@ -77,11 +78,34 @@ docs/
   03-adapter-contract-v0.1.md
   04-assumption-register-v0.1.md
   05-report-data-boundary-v0.1.md
+  06-state-ownership-runtime-v0.2.md
 sample/
   index.html
   app.js
   styles.css
 ```
+
+## State Machine Inspector
+
+The right-hand Inspector in the Sample exposes four review views:
+
+```text
+Current State
+→ current browser-side runtime snapshot
+
+Machine JSON
+→ states / events / transitions / guards / adapters
+
+Ownership
+→ which state belongs to Client, Server, or Data Layer
+
+Guards
+→ live evaluation of sensitive-access guards
+```
+
+The Sample executes all Mock state in Browser JavaScript because GitHub Pages is static. This is an executable explanation of the contract, **not** the proposed Production security architecture.
+
+For Production state placement and mutation rules, see [`docs/06-state-ownership-runtime-v0.2.md`](./docs/06-state-ownership-runtime-v0.2.md).
 
 ## Interactive acceptance scenarios
 
@@ -130,7 +154,9 @@ AuthorizationProvider
 Potential production path:
 
 ```text
-Web App Identity / Authorization
+Browser Interaction State
+        ↓
+Server-side Identity / Session / Authorization
         ↓
 trusted server-side access check
         ↓
@@ -139,12 +165,13 @@ BigQuery RLS / Authorized Views / existing enterprise data ACL
 Looker Studio or other BI presentation layer
 ```
 
-The exact Google Workspace / SSO, AOM mapping, BigQuery RLS, Looker Studio embedding, token, and credential architecture is intentionally not prescribed by this Reference Spec.
+The exact Google Workspace / SSO, AOM mapping, Server Session, BigQuery RLS, Looker Studio embedding, token, and credential architecture is intentionally left pluggable.
 
 See:
 
 - [`docs/03-adapter-contract-v0.1.md`](./docs/03-adapter-contract-v0.1.md)
 - [`docs/05-report-data-boundary-v0.1.md`](./docs/05-report-data-boundary-v0.1.md)
+- [`docs/06-state-ownership-runtime-v0.2.md`](./docs/06-state-ownership-runtime-v0.2.md)
 
 ## Mock data policy
 
@@ -152,11 +179,13 @@ All names, accounts, store codes, KPIs, revenue values, rankings, and report val
 
 ## Status
 
-- Executable Reference Specification: `v0.1`
+- Executable Reference Specification: `v0.2`
 - Interactive Mock Report Sample: implemented
-- GitHub Pages deployment workflow: implemented
-- GitHub Pages site activation: one-time repository setting required
+- State Machine Inspector: implemented
+- State Ownership / Runtime Contract: implemented
+- GitHub Pages deployment: active
 - Production SSO / IAM: out of scope
+- Production Server Session / BFF design: PIC / implementation-team decision
 - Production BigQuery RLS: PIC / implementation-team responsibility
 - Production Looker Studio / BI integration: PIC / implementation-team responsibility
 - Device trust / MDM integration: out of scope / TBD
