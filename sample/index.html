@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PCSC Analytic Web App｜登入場景 Sample</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">REFERENCE SAMPLE</div>
+          <h1>PCSC Analytic Web App</h1>
+          <p>登入、門市 Context 與機敏報表權限場景示範</p>
+        </div>
+        <div class="mock-badge">DEMO / MOCK DATA</div>
+      </header>
+
+      <section class="scenario-panel" aria-label="Demo scenario controls">
+        <div>
+          <strong>Demo 入口情境</strong>
+          <span>切換後會重新啟動狀態機。</span>
+        </div>
+        <div class="scenario-actions">
+          <button class="secondary active" data-scenario="store-a">A 店 WebSC</button>
+          <button class="secondary" data-scenario="personal">個人公司電腦</button>
+        </div>
+      </section>
+
+      <section class="status-grid" aria-label="Current application contexts">
+        <article class="status-card">
+          <span class="status-label">Store Context</span>
+          <strong id="store-context">解析中…</strong>
+          <small>目前裝置 / session 代表哪一家店</small>
+        </article>
+        <article class="status-card">
+          <span class="status-label">Human Identity</span>
+          <strong id="human-context">Anonymous</strong>
+          <small>目前是否已辨識操作的人</small>
+        </article>
+        <article class="status-card">
+          <span class="status-label">Authorization</span>
+          <strong id="auth-context">Unresolved</strong>
+          <small>此人被授權查看哪些門市</small>
+        </article>
+        <article class="status-card">
+          <span class="status-label">Selected Store</span>
+          <strong id="selected-context">—</strong>
+          <small>目前 UI 正在查看的門市</small>
+        </article>
+      </section>
+
+      <section class="workspace">
+        <aside class="sidebar">
+          <div class="sidebar-title">場景操作</div>
+
+          <button id="general-nav" class="nav-button active">一般門市報表</button>
+          <button id="sensitive-nav" class="nav-button">進階 / 機敏報表</button>
+
+          <div id="human-panel" class="human-panel hidden">
+            <div class="panel-title">模擬個人驗證</div>
+            <p>正式系統由 PIC / PCSC 既有 SSO Adapter 取代。</p>
+            <button class="identity-button" data-user="manager">
+              王店長
+              <small>STORE_MANAGER</small>
+            </button>
+            <button class="identity-button" data-user="advisor">
+              陳區顧問
+              <small>AREA_ADVISOR</small>
+            </button>
+            <button class="identity-button muted" data-user="unauthorized">
+              未授權公司使用者
+              <small>OTHER</small>
+            </button>
+          </div>
+
+          <button id="logout-human" class="text-button hidden">退出個人身分</button>
+        </aside>
+
+        <section class="content-area">
+          <div id="message" class="message hidden"></div>
+
+          <section id="general-view" class="report-view">
+            <div class="view-heading">
+              <div>
+                <div class="eyebrow">GENERAL MODE</div>
+                <h2 id="general-title">一般門市報表</h2>
+              </div>
+              <span class="access-chip general">Store Context</span>
+            </div>
+
+            <div id="general-empty" class="empty-state hidden">
+              <h3>目前沒有門市 Context</h3>
+              <p>這模擬店長 / 區顧問使用自己的公司電腦進入。仍可直接進行個人驗證後查看機敏報表。</p>
+              <button id="personal-login-cta" class="primary">登入查看機敏報表</button>
+            </div>
+
+            <div id="general-data" class="report-grid">
+              <article class="metric-card">
+                <span>本日來客指標</span>
+                <strong>1,284</strong>
+                <small>DEMO DATA</small>
+              </article>
+              <article class="metric-card">
+                <span>一般營運指標</span>
+                <strong>正常</strong>
+                <small>DEMO DATA</small>
+              </article>
+              <article class="metric-card wide">
+                <span>門市摘要</span>
+                <p>此區代表可依門市 Context 顯示、但不需要辨識每一位門市員工身分的一般資訊。</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="sensitive-view" class="report-view hidden">
+            <div class="view-heading">
+              <div>
+                <div class="eyebrow">SENSITIVE MODE</div>
+                <h2>機敏分析報表</h2>
+              </div>
+              <span class="access-chip sensitive">Human + Authorization</span>
+            </div>
+
+            <div class="sensitive-toolbar">
+              <label for="store-select">目前查看門市</label>
+              <select id="store-select"></select>
+              <span id="role-chip" class="role-chip"></span>
+            </div>
+
+            <div class="report-grid">
+              <article class="metric-card">
+                <span>營收達成率</span>
+                <strong id="sensitive-metric-1">—</strong>
+                <small>DEMO SENSITIVE DATA</small>
+              </article>
+              <article class="metric-card">
+                <span>區域排名</span>
+                <strong id="sensitive-metric-2">—</strong>
+                <small>DEMO SENSITIVE DATA</small>
+              </article>
+              <article class="metric-card wide">
+                <span>權限說明</span>
+                <p id="authorization-explain"></p>
+              </article>
+            </div>
+
+            <div class="timeout-box">
+              <div>
+                <strong>Shared-device timeout demo</strong>
+                <p>模擬共用 WebSC 忘記登出：只清除 Human Session，不清除 Store Context。</p>
+              </div>
+              <button id="simulate-timeout" class="secondary">模擬 Timeout</button>
+            </div>
+          </section>
+        </section>
+      </section>
+
+      <section class="event-log-section">
+        <div class="view-heading compact">
+          <div>
+            <div class="eyebrow">STATE TRACE</div>
+            <h2>狀態機事件</h2>
+          </div>
+          <button id="clear-log" class="text-button">清除紀錄</button>
+        </div>
+        <ol id="event-log" class="event-log"></ol>
+      </section>
+
+      <footer>
+        Reference Spec v0.1 · Production SSO / IAM / RLS implementation is intentionally out of scope.
+      </footer>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
