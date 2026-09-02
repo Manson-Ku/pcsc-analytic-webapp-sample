@@ -19,12 +19,18 @@
 
       <section class="scenario-panel" aria-label="Demo scenario controls">
         <div>
-          <strong>Demo 入口情境</strong>
-          <span>切換後會重新啟動狀態機。</span>
+          <strong>入口情境</strong>
+          <span>差異在於「進入網站時是否已帶有固定門市 Context」；切換後會重新啟動狀態機。</span>
         </div>
         <div class="scenario-actions">
-          <button class="secondary active" data-scenario="store-a">A 店 WebSC</button>
-          <button class="secondary" data-scenario="personal">個人公司電腦</button>
+          <button class="secondary active" data-scenario="store-a" title="模擬門市現場共用裝置，例如 WebSC 或門市平板。系統進站時已能辨識目前為 A 店。">
+            A 店門市共用裝置
+            <small>WebSC／門市平板 · 已有 A 店 Context</small>
+          </button>
+          <button class="secondary" data-scenario="personal" title="模擬沒有固定門市身分的裝置，例如公司筆電、手機或其他電腦。需由使用者個人登入後取得授權門市。">
+            非門市共用裝置
+            <small>公司筆電／手機／其他電腦 · 無 Store Context</small>
+          </button>
         </div>
       </section>
 
@@ -97,7 +103,7 @@
 
             <div id="general-empty" class="empty-state hidden">
               <h3>目前沒有門市 Context</h3>
-              <p>這模擬店長 / 區顧問使用自己的公司電腦進入。仍可直接進行個人驗證後查看機敏報表。</p>
+              <p>這表示使用者是從「非門市共用裝置」進入，例如公司筆電、手機或其他電腦。裝置本身不代表任何門市，仍可透過個人身分驗證後查看自己被授權的機敏報表。</p>
               <button id="personal-login-cta" class="primary">登入查看機敏報表</button>
             </div>
 
@@ -154,7 +160,7 @@
             <div class="timeout-box">
               <div>
                 <strong>Shared-device timeout demo</strong>
-                <p>模擬共用 WebSC 忘記登出：只清除 Human Session，不清除 Store Context。</p>
+                <p>模擬門市共用裝置忘記退出個人身分：只清除 Human Session，不清除 Store Context。</p>
               </div>
               <button id="simulate-timeout" class="secondary">模擬 Timeout</button>
             </div>
