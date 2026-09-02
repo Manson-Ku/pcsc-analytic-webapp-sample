@@ -1,8 +1,8 @@
-# PCSC Analytic Web App｜Executable Reference Specification v0.2
+# PCSC Analytic Web App｜Executable Reference Specification v0.3
 
 Status: `REFERENCE / REVIEW`  
 Type: `Executable Requirement Specification`  
-SSOT: 本文件定義業務需求、驗收場景、State Ownership 與責任邊界；`sample/` 是本規格的可操作示範；`docs/` 保存詳細狀態機與介面說明。
+SSOT: 本文件定義業務需求、驗收場景、Device Binding、State Ownership 與責任邊界；`sample/` 是可操作示範；`docs/` 保存詳細規格。
 
 > 本規格不是 Production IAM、BigQuery RLS 或 Looker Studio 實作方案。它的目的，是把分析團隊的業務場景翻譯成 PIC / 開發團隊可以實作與驗收的明確 Contract。
 
@@ -10,16 +10,26 @@ SSOT: 本文件定義業務需求、驗收場景、State Ownership 與責任邊�
 
 ## 1. 問題定義
 
-分析 Web App 同時存在兩種使用情境：
-
-1. 門市共用 WebSC / 平板需要直接顯示該門市的一般報表。
-2. 店長 / 區顧問需要以個人身分查看較機敏、且可能跨多門市的報表。
-
-因此系統不得只用單一 `logged_in=true/false` 表達權限。
-
-正式模型必須分離：
+系統存在兩種不同的持續狀態：
 
 ```text
+Store Device Binding
+= 這個 Browser / Device 是否已被綁定為某一家門市入口
+
+Human Sensitive Session
+= 現在操作機敏報表的人是誰、能看哪些門市
+```
+
+因此系統不得只用單一：
+
+```text
+logged_in=true/false
+```
+
+正式模型至少必須分離：
+
+```text
+Device Binding
 Store Context
 Human Identity
 Authorization
@@ -28,21 +38,91 @@ Selected Store
 
 ---
 
-## 2. Business Requirements
+## 2. Store Device Binding｜正式決議
+
+### BR-00｜門市裝置以門市 Google Workspace 帳號完成綁定
+
+本 Reference Spec 的明確作法：
+
+```text
+首次綁定
+→ 使用門市 Google Workspace 帳號完成驗證
+→ Google Identity map 到唯一 storeCode
+→ Server 建立 Device Binding
+```
+
+例如：
+
+```text
+store-a@...
+→ A001
+→ DEVICE-BIND-001
+```
+
+Google 登入只是建立 Binding 的 Authentication Ceremony；**Google login session 不等於 Device Binding 本身**。
+
+綁定成功後，後續 App BOOT 應由 Server 驗證既有 Device Binding 並解析 Store Context，不要求每次進站重新登入門市 Google 帳號。
+
+### BR-00A｜Device Binding 是獨立、較長生命週期的 Server State
+
+Production 應保存等效狀態：
+
+```json
+{
+  "device_binding": {
+    "binding_id": "DEVICE-BIND-001",
+    "status": "ACTIVE",
+    "store_code": "A001"
+  }
+}
+```
+
+Browser 建議只持有 opaque binding/session identifier，由 Server 驗證。
+
+### BR-00B｜Human Logout 不解除 Device Binding
+
+正式 invariant：
+
+```text
+logoutHuman() != unbindDevice()
+IDLE_TIMEOUT != unbindDevice()
+```
+
+只有獨立、明確的：
+
+```text
+UNBIND_DEVICE
+```
+
+才會撤銷 / 移除門市 Device Binding。
+
+詳細規格：`docs/07-store-device-binding-v0.3.md`
+
+---
+
+## 3. Business Requirements
 
 ### BR-01｜一般門市報表不要求個人登入
 
-當系統可以解析目前 Store Context 時，門市一般報表可以直接依該門市 Context 顯示，不要求每位門市員工登入個人帳號。
+若 Server 解析到有效 Device Binding：
+
+```text
+Device Binding = A001
+→ verified Store Context = A001
+→ A001 General Mode
+```
+
+門市員工不需要每人登入個人帳號即可查看 A 店一般報表。
 
 ### BR-02｜機敏報表要求 Human Identity
 
-進入機敏報表前，必須另外辨識操作的人員身分。
+進入機敏報表前，必須另外建立 Human Session。
 
-Store Context 本身不得授予機敏資料權限。
+Device Binding / Store Context 本身不得授予 Human Sensitive Authorization。
 
 ### BR-03｜Human Identity 與 Authorization 分離
 
-「公司帳號驗證成功」只表示知道使用者是誰，不代表此人可以查看任意門市。
+公司帳號驗證成功只代表知道「現在是誰」，不等於可以看任意門市。
 
 系統仍需解析：
 
@@ -52,37 +132,68 @@ user_id
 → allowed_store_codes[]
 ```
 
-### BR-04｜可查看門市由 Authorization 決定
+### BR-04｜可查看門市由 Human Authorization 決定
 
-店長 / 區顧問可以查看哪些門市，取決於其 `allowed_store_codes`，而不是目前人在哪一家店、也不是目前使用哪一台裝置。
-
-### BR-05｜Store Context 只影響預設 UX
-
-若使用者在 A 店 WebSC 完成個人驗證，而且 A 店也位於其 Allowed Stores 內，系統可以預設 Selected Store=A。
-
-這只是 UX default，不得縮小或擴張實際 Authorization。
-
-### BR-06｜個人公司電腦可直接進入 Human Flow
-
-若沒有 Store Context，例如店長 / 區顧問使用自己的公司電腦，仍可完成個人身分驗證與 Authorization 後進入機敏報表。
-
-### BR-07｜共用裝置 Timeout 只退出 Human Session
-
-在 WebSC / 共用門市裝置上，Human Session timeout 或人工退出後：
+店長 / 區顧問可以查看哪些門市，由其 `allowed_store_codes` 決定，而不是：
 
 ```text
-清除 Human Identity
-清除 Authorization
-清除機敏資料狀態
-保留 Store Context
-回到該門市一般報表
+Device Binding 所屬門市
+實體所在門市
+目前使用哪一台裝置
 ```
 
-不得把整台門市裝置的 Store Context 一併登出。
+### BR-05｜已綁定門市只影響預設 UX
+
+若：
+
+```text
+Device Binding=A001
+Allowed Stores=[A001,B001]
+```
+
+登入機敏模式後可以預設：
+
+```text
+Selected Store=A001
+```
+
+但仍可切換 B001。
+
+### BR-06｜未綁定裝置仍可直接走 Human Flow
+
+如果沒有 Device Binding，例如手機、公司筆電、家中電腦或尚未完成門市綁定的新裝置，仍可以：
+
+```text
+Human Login
+→ Authorization
+→ Sensitive Mode
+```
+
+只是沒有 General Store Context。
+
+### BR-07｜Human Timeout 只退出 Human Session
+
+已綁定 A 店的裝置：
+
+```text
+Before
+Device Binding=A001
+Human=USER-001
+Allowed Stores=[A001,B001]
+Sensitive Session=ACTIVE
+
+IDLE_TIMEOUT / HUMAN_LOGOUT
+
+After
+Device Binding=A001       KEEP
+Store Context=A001         KEEP
+Human=null                 CLEAR
+Authorization=[]           CLEAR
+Sensitive Session=OFF      CLEAR
+View=A001 General Mode
+```
 
 ### BR-08｜Selected Store 不等於資料權限
-
-前端下拉選單、URL parameter、hidden filter、Looker Studio filter 都不是 Authorization。
 
 正式資料層必須再次驗證：
 
@@ -90,302 +201,325 @@ user_id
 requested_store_code ∈ allowed_store_codes
 ```
 
+前端下拉、URL parameter、hidden filter、Looker Studio filter 均不是 Authorization。
+
 ---
 
-## 3. Core Invariants
-
-以下規則應視為 implementation invariant：
+## 4. Core Invariants
 
 ```text
+Device Binding != Google Login Session
+Device Binding != Human Identity
 Store Context != Human Identity
 Human Identity != Authorization
 Authorization != Selected Store
-Store Context does not grant sensitive access
-Selected Store must be inside Allowed Stores
-SSO success does not imply report authorization
-UI filtering does not replace data-layer authorization
+
+Device Binding grants Store Context only.
+Device Binding does NOT grant Human sensitive authorization.
+
+logoutHuman() != unbindDevice()
+IDLE_TIMEOUT != unbindDevice()
+
+Selected Store must be inside Allowed Stores for sensitive data access.
+SSO success does not imply report authorization.
+UI filtering does not replace data-layer authorization.
 ```
 
 ---
 
-## 3A. State Machine / Ownership / Runtime Model
+## 5. State Machine / Runtime Model
 
-### 3A-01｜這裡所稱 State Machine 是什麼
-
-State Machine 不是單一 JSON，也不是一個登入 Boolean，而是：
+### 5.1 Device Binding Flow
 
 ```text
-States
-+ Events
-+ Transitions
-+ Guards
-+ Context
-+ Ownership rules
+BOOT
+→ RESOLVE_DEVICE_BINDING
+
+ACTIVE Binding
+→ STORE_CONTEXT_RESOLVED
+→ GENERAL_MODE
+
+No Binding
+→ DEVICE_UNBOUND / PERSONAL_ENTRY
 ```
 
-Sample Web 右側 `State Machine Inspector` 會同步顯示目前 Runtime State、Reference Machine JSON、Ownership 與 Guard evaluation。
+首次綁定：
 
-### 3A-02｜Production 必須拆成三層 State Responsibility
+```text
+REQUEST_DEVICE_BIND
+→ STORE_ACCOUNT_AUTH_REQUIRED
+→ Google Workspace Store Account Auth
+→ STORE_ACCOUNT_AUTH_SUCCESS
+→ StoreAccountResolver
+→ storeCode
+→ DEVICE_BINDING_CREATED
+→ GENERAL_MODE
+```
+
+解除綁定：
+
+```text
+UNBIND_DEVICE
+→ Device Binding revoked / removed
+→ Store Context none
+```
+
+### 5.2 Human Sensitive Flow
+
+```text
+REQUEST_SENSITIVE
+→ HUMAN_AUTH_REQUIRED
+→ AUTH_SUCCESS
+→ HUMAN_AUTHENTICATED
+→ AuthorizationProvider
+→ role + allowed stores
+→ AUTHORIZATION_RESOLVED
+→ ENTER_SENSITIVE [guard]
+→ SENSITIVE_MODE
+```
+
+### 5.3 Human Logout / Timeout
+
+```text
+HUMAN_LOGOUT / IDLE_TIMEOUT
+→ clear Human Session
+→ clear Authorization
+→ clear Sensitive Session
+→ KEEP Device Binding
+```
+
+詳細：`docs/06-state-ownership-runtime-v0.2.md`
+
+---
+
+## 6. Production State Ownership
 
 ```text
 Browser / Web App
-────────────────────
+────────────────────────
 Client Interaction State
 - requestedView
 - selectedStoreCode
-- UI filters / UX preference
+- UI preference
+- request bind / unbind action
         │
         ▼
 Server / BFF / Session Layer
-────────────────────
-Authoritative Identity / Authorization State
+────────────────────────
+Authoritative State
+- Device Binding
 - verified Store Context
 - Human Identity
-- authentication status
+- Human Session
 - role
 - allowedStoreCodes
-- sensitive session / expiry
+- sensitive session expiry
         │
         ▼
 Trusted Data / BI Layer
-────────────────────
-Final row-access enforcement
-- requestedStoreCode in allowedStoreCodes
+────────────────────────
+Final Enforcement
+- requestedStore in allowedStores
 - BigQuery RLS / Authorized View / ACL
 - Looker Studio presentation
 ```
 
 核心原則：
 
-> **Client owns interaction state; Server owns identity and authorization truth; Data layer owns final row-access enforcement.**
+> **Client owns interaction state; Server owns Device Binding, identity and authorization truth; Data layer owns final row-access enforcement.**
 
-### 3A-03｜Client 可以改什麼
+### Cookie / Session 原則
 
-Client 可以直接改：
+UX preference 可以由 Client 修改。
 
-```text
-requestedView
-selectedStoreCode
-lastSelectedStore
-UI filter
-navigation state
-```
-
-也可以將非機敏 Preference 保存於：
+Device Binding / Human Security Session 不應由 Browser 直接宣告：
 
 ```text
-memory
-sessionStorage
-localStorage
-non-sensitive cookie
-URL route/query
-```
-
-但 Client 提出的狀態只是「想做什麼」，不是「有權做什麼」。
-
-例如：
-
-```text
-selectedStoreCode=B001
-```
-
-語意是：
-
-```text
-Browser requests B001
-```
-
-不是：
-
-```text
-Browser is authorized for B001
-```
-
-### 3A-04｜Server 必須擁有什麼真相
-
-以下狀態不得由 Browser 自行宣告為真：
-
-```text
-verifiedStoreContext
-human.userId
-authenticated
-role
-allowedStoreCodes
-sensitiveSession.active
-sensitiveSession.expiresAt
-```
-
-它們應由 Enterprise SSO、Google Workspace Identity、AOM / employee mapping、Authorization SSOT、Server Session 等可信來源建立或驗證。
-
-### 3A-05｜Cookie 原則
-
-UX Preference Cookie 可以由 Client 調整，例如：
-
-```text
-preferred_store=A001
-last_report=sales
-```
-
-安全 Session 不應採用可被 Browser 任意修改後直接相信的：
-
-```text
+isStoreDevice=true
+storeCode=A001
 role=STORE_MANAGER
 allowedStores=A001,B001
 ```
 
-正式 Session 建議滿足等效安全原則：
+建議 Browser 僅持有 opaque identifier，Server 驗證其對應狀態；若使用 Cookie，建議符合等效：
 
 ```text
-opaque session id
 HttpOnly
 Secure
 SameSite
-server validation
 ```
-
-若採 signed / encrypted token，也必須由 Server 驗證完整性、有效期與撤銷邏輯。
-
-### 3A-06｜State 如何變動
-
-State 應由 Event 驅動：
-
-```text
-BOOT
-→ STORE_CONTEXT_RESOLVED / STORE_CONTEXT_NONE
-
-REQUEST_SENSITIVE
-→ HUMAN_AUTH_REQUIRED
-
-AUTH_SUCCESS
-→ HUMAN_AUTHENTICATED
-
-AUTHORIZATION_RESOLVED
-→ AUTHORIZATION_RESOLVED state
-
-ENTER_SENSITIVE + guard pass
-→ SENSITIVE_MODE
-
-CHANGE_STORE(B001)
-→ Client selectedStoreCode=B001
-→ Data request still requires server/data guard
-
-HUMAN_LOGOUT / IDLE_TIMEOUT
-→ clear Human / Authorization / Sensitive Session
-→ keep verified Store Context when present
-```
-
-詳細 State Ownership / Runtime / Mutation 規格：`docs/06-state-ownership-runtime-v0.2.md`
 
 ---
 
-## 4. Acceptance Scenarios
+## 7. 「店長帳號 = 門市帳號」的處理原則
 
-### AC-01｜A 店一般門市模式
+即使正式環境最後發生：
 
-Given：入口為 A 店 WebSC  
-When：Web App 啟動並解析 Store Context  
+```text
+店長 Human Login 使用的 Google account
+=
+門市 Device Binding 使用的 Google account
+```
+
+兩次驗證仍屬不同 purpose：
+
+```text
+Store Binding Ceremony
+→ 建立 / 驗證 Device Binding
+
+Human Ceremony
+→ 建立 Human Sensitive Session
+```
+
+所以：
+
+```text
+店長退出 Human Session
+不等於
+解除門市 Device Binding
+```
+
+但另有一個必須由 PIC / 業務確認的問題：
+
+> 如果該 Google 帳號是多人共用門市帳號，它無法唯一證明是哪一位自然人。
+
+若機敏權限要求：
+
+```text
+person → role → allowed stores
+```
+
+則 Human Ceremony 仍需取得唯一 `userId`；可以來自個人 Workspace 帳號或另一個個人二階段驗證方式。
+
+這個問題不影響 Device Binding 與 Human Session 必須分離的決策。
+
+---
+
+## 8. Acceptance Scenarios
+
+### AC-00｜首次綁定 A 店門市裝置
+
+Given：裝置沒有 Device Binding  
+When：使用 A 店門市 Google 帳號完成綁定  
 Then：
 
 ```text
-storeContext = A001
-human = anonymous
-general report = A001
+Device Binding=ACTIVE
+storeCode=A001
+Store Context=A001
+Human=anonymous
+View=A001 General Mode
 ```
 
-且不要求個人登入。
+### AC-01｜已綁定 A 店裝置再次進站
 
-### AC-02｜王店長在 A 店進入機敏報表
+Given：已有有效 A001 Device Binding  
+When：Web App BOOT  
+Then：
 
-Mock Reference：
+```text
+Server resolve Binding
+→ Store Context=A001
+→ A001 General Mode
+```
+
+不要求個人 Human Login。
+
+### AC-02｜王店長在已綁定 A 店裝置進入機敏報表
 
 ```text
 王店長
-role = STORE_MANAGER
-allowedStores = [A001, B001]
+role=STORE_MANAGER
+allowedStores=[A001,B001]
 ```
 
-Given：Store Context=A001  
-When：王店長完成個人驗證  
 Then：
 
 ```text
-Human Identity = USER-001
-Allowed Stores = [A001, B001]
-Selected Store default = A001
-Sensitive Mode = allowed
+Device Binding=A001
+Human=USER-001
+Allowed Stores=[A001,B001]
+Selected Store default=A001
+Sensitive Mode=allowed
 ```
 
 ### AC-03｜王店長跨店查看
 
-Given：王店長已通過 AC-02  
-When：切換 Selected Store=B001  
-Then：可以取得 B001 機敏報表。
+可以切 B001；不得取得 C001 / D001 機敏資料。
 
-王店長不得取得 C001 / D001 機敏資料。
+### AC-04｜未綁定裝置直接個人登入
 
-### AC-04｜區顧問使用個人公司電腦
-
-Mock Reference：
+例如手機 / 公司筆電 / 家中電腦：
 
 ```text
-陳區顧問
-role = AREA_ADVISOR
-allowedStores = [A001, B001, C001, D001]
+Device Binding=NONE
+→ Human Login
+→ Authorization
+→ Sensitive Mode
 ```
 
-Given：沒有 Store Context  
-When：陳區顧問完成個人驗證  
-Then：仍可進入 Sensitive Mode 並查看 Allowed Stores 內的門市。
-
-### AC-05｜公司帳號登入成功但無報表授權
-
-Mock Reference：
+### AC-05｜Human 登入成功但無 Authorization
 
 ```text
-未授權公司使用者
-allowedStores = []
+Human authenticated
+Allowed Stores=[]
+→ AUTHORIZATION_DENIED
 ```
 
-When：Human Identity 驗證成功  
+### AC-06｜Human Timeout 不解綁
+
+Given：
+
+```text
+Device Binding=A001
+Human=USER-001
+```
+
+When：Timeout  
 Then：
 
 ```text
-AUTHORIZATION_DENIED
-Sensitive Mode = denied
+Human cleared
+Authorization cleared
+Device Binding still A001
+Store Context still A001
+→ A001 General Mode
 ```
 
-用來驗證「SSO success != report authorization」。
+### AC-07｜明確解除門市綁定
 
-### AC-06｜共用 WebSC Timeout
-
-Given：Store Context=A001，且王店長正在 Sensitive Mode  
-When：Human Session timeout  
+When：執行 `UNBIND_DEVICE`  
 Then：
 
 ```text
-Human Identity → anonymous
-Authorization → unresolved
-Sensitive data → cleared
-Store Context → A001 (keep)
-View → A001 General Mode
+Device Binding=NONE / REVOKED
+Store Context=none
 ```
 
-### AC-07｜非法 Selected Store
+Human Logout 不得產生同樣效果。
 
-Given：Allowed Stores=[A001, B001]  
-When：請求 C001  
-Then：前端可以拒絕操作，但正式實作仍必須由 trusted server / data layer 再次拒絕資料請求。
+### AC-08｜非法 Selected Store
+
+Given：Allowed Stores=[A001,B001]  
+When：request C001  
+Then：正式 Server / Data Layer 必須拒絕。
 
 ---
 
-## 5. Reference Context Contract
+## 9. Reference Context Contract
 
-Web App 在進入資料 / BI 層前，需要能形成等效於下列的可信 Context：
+正式資料 / BI request 前，系統需要能形成等效 Context：
 
 ```json
 {
-  "store_context": {
+  "device_binding": {
+    "status": "ACTIVE",
+    "binding_id": "DEVICE-BIND-001",
     "store_code": "A001"
+  },
+  "store_context": {
+    "store_code": "A001",
+    "verified": true
   },
   "human": {
     "user_id": "USER-001",
@@ -399,36 +533,32 @@ Web App 在進入資料 / BI 層前，需要能形成等效於下列的可信 Co
 }
 ```
 
-欄位名稱可以由正式實作調整；語意不可消失。
-
-注意：Production 中這個 Context 不應被理解為「Browser 自己產生即可信」。`human` / `authorization` / verified store context 必須來自可信 Server / Enterprise Identity Layer；Browser 僅持有其可顯示的 projection。
+欄位名稱可以調整；語意不可消失。
 
 ---
 
-## 6. Adapter Contracts
+## 10. Adapter Contracts
 
-Reference Sample 將企業底層視為可插拔 Provider：
+Reference 需要四個主要能力：
 
 ```text
-StoreIdentityProvider
+StoreAccountResolver
+StoreDeviceBindingProvider
 HumanIdentityProvider
 AuthorizationProvider
 ```
 
-PIC / 正式實作團隊可以使用現有 Google Workspace、SSO、AOM、員工權限資料、內部 API 或其他企業系統實作 Provider。
-
-上層 Business State Machine 不應因底層來源不同而改寫。
-
-詳細 Contract：`docs/03-adapter-contract-v0.1.md`
+詳細：`docs/03-adapter-contract-v0.1.md`
 
 ---
 
-## 7. Report / Data Boundary
+## 11. Report / Data Boundary
 
-### Reference Sample 負責
+### Reference Sample / MARPTEK Translation Layer
 
 ```text
 Business Scenario
+Device Binding semantics
 Login / Authorization State Machine
 State Ownership / Runtime Contract
 Store Context
@@ -440,105 +570,70 @@ Timeout Behavior
 Acceptance Scenarios
 ```
 
-### PIC / PCSC 正式實作團隊負責
+### PIC / PCSC Production Implementation
 
 ```text
 Google Workspace / Enterprise SSO
-AOM / Employee / Store Mapping
-Production Session / Token
-Server-side authoritative state
+Store Google Account → storeCode mapping SSOT
+Production Device Binding persistence / revocation
+Production Human Session
+AOM / Employee / Store Authorization mapping
 Server-side authorization
 BigQuery RLS / Authorized View / existing ACL
-Looker Studio Data Source / Embed / Report Integration
-Production Audit / Logging
-Device Trust / MDM (if required)
+Looker Studio Integration
+Audit / Logging
+Optional MDM / Device Trust hardening
 ```
 
-詳細說明：
-
-- `docs/05-report-data-boundary-v0.1.md`
-- `docs/06-state-ownership-runtime-v0.2.md`
-
 ---
 
-## 8. Mock Data Policy
+## 12. Open Integration Facts / TBD
 
-`sample/` 中所有：
+目前已決定「如何建立門市身分」；剩下是 Production implementation facts：
 
 ```text
-人名
-帳號
-門市代碼
-來客數
-營收達成率
-區域排名
-營運狀態
+A01 門市 Google 帳號 → storeCode mapping SSOT
+A02 Person-level unique userId 的來源
+A03 user → role → allowed stores SSOT
+A04 可沿用的 Google Workspace / SSO 介面
+A05 Device Binding persistence scope：Browser / OS device / managed device
+A06 Binding TTL / rotation / revoke policy
+A07 UNBIND_DEVICE 的 Production 權限與操作方式
+A08 Human idle timeout 時間
+A09 BQ / Looker 正式 Enforcement 架構
+A10 若店長 Human Account 與共享門市帳號相同，如何取得唯一自然人 identity
+A11 是否另加 MDM / Endpoint 作 Device Trust hardening
 ```
 
-均為 DEMO / MOCK DATA。
-
-它們只用來驗證業務流程，不代表 PCSC 正式資料、帳號或授權。
+詳細：`docs/04-assumption-register-v0.1.md`
 
 ---
 
-## 9. Open Assumptions / TBD
-
-目前不阻塞 Reference Spec 的待確認項目包括：
+## 13. Spec Governance
 
 ```text
-A01 門市帳號 / 裝置如何解析唯一 store_code
-A02 公司個人帳號如何解析唯一 user_id
-A03 user → role → allowed stores 的正式 SSOT
-A04 現有 SSO / Login 架構與可重用介面
-A05 WebSC / 平板既有裝置管理能力
-A06 Human Session idle timeout 正式時間
-A07 BigQuery / Looker Studio 正式 Enforcement 架構
-A08 Production Server Session / BFF / token 實作形式
+1. SPEC.md
+   = Business / Acceptance SSOT
+
+2. sample/
+   = Executable behavior reference
+
+3. docs/
+   = Detailed architecture / contract / assumption notes
+
+4. Production code
+   = PIC / implementation team
 ```
 
-詳細追蹤：`docs/04-assumption-register-v0.1.md`
+若 Sample 與 `SPEC.md` 不一致，先確認需求，再同步修正 Sample；不得默認 Sample code 自動成為新的業務規則。
 
 ---
 
-## 10. 如何驗收本規格
-
-### 分析 / 需求團隊
-
-直接操作 GitHub Pages Sample，逐項確認 AC-01 ～ AC-06 的業務行為是否符合期待。
-
-### PIC / 開發團隊
-
-Review：
-
-1. Core Invariants 是否可由既有技術架構滿足。
-2. Client / Server / Data Layer 的 State Ownership 是否可映射到既有架構。
-3. 三個 Provider 各自可以接哪個既有系統。
-4. `allowed_store_codes` 應由哪個 SSOT 提供。
-5. 正式資料層如何 enforce `requested_store_code ∈ allowed_store_codes`。
-6. Human Session timeout 後如何確保 BI / Looker 不再沿用舊授權。
-7. 哪些 Browser cookie / storage 只是 Preference，哪些 Session 必須由 Server 驗證。
-
----
-
-## 11. Spec Governance
-
-規格優先順序：
+## 14. Version
 
 ```text
-1. SPEC.md                ← Business / Acceptance / Ownership SSOT
-2. sample/                ← Executable behavior reference
-3. docs/                  ← Detailed technical explanation
-4. Production code       ← PIC / implementation team
-```
-
-若 Sample 與 `SPEC.md` 行為不一致，應先確認需求，再同步修正 Sample；不得默認 Sample code 自動成為新的業務規則。
-
----
-
-## 12. Version
-
-```text
-Spec Version: v0.2
+Spec Version: v0.3
+Major addition: Store Google Account based Device Binding
 Maturity: Reference / Review
 Production Ready: NO
 ```
