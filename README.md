@@ -17,6 +17,21 @@ Business Rules
 
 ---
 
+## 分析團隊到底想要什麼
+
+如果只看這一段，開發者應能先理解需求，而不用先理解 State Machine。
+
+1. **門市一般報表要低摩擦。** 已完成門市綁定的共用裝置進站後，要直接知道是哪一家店並顯示本店一般報表，不要求每位門市員工再做個人登入。
+2. **門市裝置要先被綁定。** 第一次使用門市 Google Workspace 帳號驗證，將這個 Browser / Device 建立成該門市的 `Device Binding`；之後不需要每次重新輸入門市帳號。
+3. **機敏報表是另一個 Human Login。** 店長 / 區顧問要看機敏資料時，要另外辨識「現在這個人是誰」，不能把門市 Device Binding 當成人員身分。
+4. **可看哪些店跟著人，不跟著裝置。** 店長 / 區顧問能看的門市由 `allowedStoreCodes` 決定；人在 A 店裝置登入不代表只能看 A 店。
+5. **Human Logout / Timeout 不得解除門市綁定。** 店長退出或閒置逾時後，只清除 Human Session / Authorization；已綁定的門市裝置仍回到該店一般報表。
+6. **真正的資料權限要在可信層再擋一次。** 前端下拉選單、URL、Looker filter 都不是 Security Boundary；正式資料請求仍要驗證 `requestedStoreCode in allowedStoreCodes`。
+
+PIC 不必把正式系統重寫成 Sample 的技術形式。只要既有架構能滿足以上 Business Behavior、State Ownership、Contract 與 Acceptance Criteria，即符合本 Reference Spec 的目的。
+
+---
+
 ## 入口
 
 - **可操作 Sample：** https://manson-ku.github.io/pcsc-analytic-webapp-sample/sample/
