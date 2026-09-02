@@ -1,101 +1,121 @@
 # PCSC Analytic Web App Sample
 
-Executable Reference Specification for the PCSC analytics Web App **Store Device Binding、Human Login、Authorization、State Ownership 與 Report Access** flow.
+這是一份給分析團隊與 PIC / 開發團隊共同 Review 的 **Executable Reference Specification（可執行需求規格）**。
 
-> This repository is **not** a production IAM / BI implementation. It translates confirmed business scenarios into a reviewable specification, state machine, adapter contracts, acceptance scenarios, and an interactive Mock Web App for PIC / implementation teams.
+它把「門市一般報表、門市裝置綁定、個人登入、跨店授權、Timeout、機敏資料權限」翻譯成：
 
-## Entry points
+```text
+Business Rules
++ State Machine
++ State Ownership
++ Adapter Contracts
++ Acceptance Criteria
++ 可操作 Mock Web Sample
+```
 
-- **Specification SSOT:** [`SPEC.md`](./SPEC.md)
-- **Interactive Sample:** [`sample/`](./sample/)
-- **GitHub Pages:** `https://manson-ku.github.io/pcsc-analytic-webapp-sample/sample/`
-- **Device Binding Detail:** [`docs/07-store-device-binding-v0.3.md`](./docs/07-store-device-binding-v0.3.md)
+> 本 Repo **不是 Production IAM / BI 實作**。正式 Google Workspace / SSO、Server Session、BigQuery RLS、Looker Studio 與企業 ACL 由 PIC / PCSC 正式架構負責。
 
-## v0.3 核心決議
+---
 
-門市裝置的 Store Context 不再以模糊的「WebSC 裝置」假設表示，而是明確定義為：
+## 入口
+
+- **可操作 Sample：** https://manson-ku.github.io/pcsc-analytic-webapp-sample/sample/
+- **需求規格 SSOT：** [`SPEC.md`](./SPEC.md)
+- **開發者 5 分鐘導讀：** [`docs/00-developer-quickstart-v0.3.md`](./docs/00-developer-quickstart-v0.3.md)
+- **門市 Device Binding 規格：** [`docs/07-store-device-binding-v0.3.md`](./docs/07-store-device-binding-v0.3.md)
+- **State Ownership：** [`docs/06-state-ownership-runtime-v0.2.md`](./docs/06-state-ownership-runtime-v0.2.md)
+- **Adapter Contract：** [`docs/03-adapter-contract-v0.1.md`](./docs/03-adapter-contract-v0.1.md)
+
+---
+
+## 30 秒理解這個系統
+
+系統有兩個必須分開的生命週期：
+
+```text
+Store Device Binding
+= 這個 Browser / Device 被綁定成哪一家門市
+= 長生命週期
+
+Human Session
+= 現在操作機敏報表的人是誰
+= 短生命週期
+```
+
+門市裝置的明確辨認方式是：
 
 ```text
 首次綁定
-→ 使用門市 Google Workspace 帳號驗證
-→ Google account map 到唯一 storeCode
+→ 使用「門市 Google Workspace 帳號」驗證
+→ StoreAccountResolver
+→ Google Account 對應唯一 storeCode
 → Server 建立 Store Device Binding
 ```
 
-之後 App 進站時：
+之後進站：
 
 ```text
 BOOT
 → Server resolve Device Binding
 → Binding ACTIVE
 → verified Store Context
-→ General Store Report
+→ 顯示該店一般報表
 ```
 
-因此四個概念必須分離：
+店長 / 區顧問要看機敏報表時，另外建立 Human Session：
+
+```text
+Human Login
+→ stable userId
+→ AuthorizationProvider
+→ role + allowedStoreCodes[]
+→ Sensitive Mode
+```
+
+所以最重要的 Invariant 是：
 
 ```text
 Store Google Account Login
 != Store Device Binding
 != Human Session
 != Human Authorization
-```
 
-尤其：
-
-```text
 logoutHuman() != unbindDevice()
 IDLE_TIMEOUT != unbindDevice()
 ```
 
-店長退出機敏 Human Session 後，已綁定的門市裝置仍保持 Store Context，回到該店一般報表。
+---
 
-只有明確的：
+## 五個核心 Context / State
 
-```text
-UNBIND_DEVICE
-```
+| 名稱 | 回答的問題 | 正式 SSOT |
+|---|---|---|
+| `Device Binding` | 這個 Browser / Device 綁定哪家店？ | Server |
+| `Store Context` | 一般門市報表目前是哪家店？ | Server，由 Binding 解析 |
+| `Human Identity` | 現在操作機敏報表的人是誰？ | Enterprise SSO / Server Session |
+| `Authorization` | 這個人可以查看哪些門市？ | Authorization SSOT / Server |
+| `Selected Store` | 使用者現在想看哪家店？ | Client interaction state；Server 仍須驗證 |
 
-才解除門市 Device Binding。
+一句話：
 
-## Sample 可以怎麼測
+> **Client 可以選擇想看哪一家店；Server 才能決定他有沒有權限看。**
 
-```text
-情境 A：已綁定 A 店的裝置
-→ BOOT resolve Device Binding=A001
-→ 直接看到 A 店一般報表
-→ 王店長 Human Login
-→ Allowed Stores=A/B
-→ Sensitive Mode
-→ Human Logout / Timeout
-→ Device Binding 仍為 A001
-→ 回 A 店一般報表
-```
+---
 
-```text
-情境 B：尚未綁定的裝置
-→ Device Binding=NONE
-→ 可以選：
-   1. 用 A 店門市 Google 帳號完成 Mock Binding
-   2. 不綁定，直接做 Human Login 看自己的機敏報表
-```
-
-Sample 也提供獨立的「解除門市 Device Binding（Demo）」操作，用來驗證它與 Human Logout 是兩個不同事件。
-
-## State Ownership
+## State 放在哪裡
 
 ```text
 Browser / Web App
-────────────────────
-Interaction State
+────────────────────────────
+Client Interaction State
 - requestedView
 - selectedStoreCode
-- UI preferences
+- UI preference
 - request bind / unbind
         │
         ▼
-Server / BFF / Session
-────────────────────
+Server / BFF / Session Layer
+────────────────────────────
 Authoritative State
 - Device Binding
 - verified Store Context
@@ -107,9 +127,9 @@ Authoritative State
         │
         ▼
 Data / BI Layer
-────────────────────
+────────────────────────────
 Final Enforcement
-- requestedStore in allowedStores
+- requestedStoreCode in allowedStoreCodes
 - BigQuery RLS / Authorized View / ACL
 - Looker Studio presentation
 ```
@@ -118,44 +138,168 @@ Final Enforcement
 
 > **Client owns interaction state; Server owns Device Binding, identity and authorization truth; Data layer owns final row-access enforcement.**
 
-## Provider / Adapter Contracts
+Sample 是純靜態 GitHub Pages，因此為了展示，以上狀態目前全部 Mock 在 Browser。這是 Demo runtime，不是 Production Security Architecture。
 
-Reference v0.3 需要四個主要能力：
+---
+
+## 開發者建議閱讀順序
+
+第一次接手不用先把全部文件讀完，建議：
 
 ```text
-StoreAccountResolver
-StoreDeviceBindingProvider
-HumanIdentityProvider
-AuthorizationProvider
+1. 先操作 sample/
+2. docs/00-developer-quickstart-v0.3.md
+3. SPEC.md
+4. docs/07-store-device-binding-v0.3.md
+5. docs/06-state-ownership-runtime-v0.2.md
+6. docs/03-adapter-contract-v0.1.md
+7. docs/05-report-data-boundary-v0.1.md
 ```
 
-詳細：[`docs/03-adapter-contract-v0.1.md`](./docs/03-adapter-contract-v0.1.md)
+Sample 右側的 `State Machine Inspector` 也可以直接切換：
 
-## 「店長帳號 = 門市帳號」
+```text
+Current State   → 現在 Runtime State
+Machine JSON    → States / Events / Transitions
+Ownership       → Client / Server / Data Layer 誰負責什麼
+Integration Map → Mock 正式落地時要替換哪個 Adapter
+Guards          → 目前 Guard 判斷結果
+```
 
-即使正式環境最後使用相同 Google account 做兩個流程，也必須把它們視為兩次不同 purpose 的驗證：
+---
+
+## Mock → Production 要替換哪些地方
+
+Reference v0.3 有四個主要整合能力，加上一個最終資料 Guard：
+
+| Contract | 正式系統要回答什麼 | 必要輸出 |
+|---|---|---|
+| `StoreAccountResolver` | 門市 Google Account 對應哪個門市？ | `storeCode` |
+| `StoreDeviceBindingProvider` | 此 Browser / Device 是否有有效門市綁定？ | `bindingId`, `status`, `storeCode` |
+| `HumanIdentityProvider` | 現在這個人是誰？ | stable `userId` |
+| `AuthorizationProvider` | 這個人可以看哪些門市？ | `role`, `allowedStoreCodes[]` |
+| Sensitive Data Guard | 這次實際資料請求能不能讀這家店？ | allow / deny / row scope |
+
+PIC 可以使用既有 GWS、AOM、SSO、IAM、HR、ACL、內部 API 或其他企業系統實作上述 Contract。
+
+不要求正式系統照抄 Sample code；要求的是 **Business State Machine 與 Invariant 不被破壞**。
+
+---
+
+## Sample 可以怎麼測
+
+### 情境 A：已綁定 A 店的裝置
+
+```text
+BOOT
+→ Device Binding=A001
+→ A 店一般報表
+→ 王店長 Human Login
+→ Allowed Stores=[A001,B001]
+→ Sensitive Mode
+→ 切換 B001 可看 B 店
+→ Human Logout / Timeout
+→ Device Binding 仍為 A001
+→ 回 A 店一般報表
+```
+
+### 情境 B：尚未綁定的裝置
+
+```text
+BOOT
+→ Device Binding=NONE
+```
+
+可以選：
+
+```text
+A. 用 A 店門市 Google Account 完成 Mock Device Binding
+   → Store Context=A001
+   → A 店一般報表
+
+B. 不綁定裝置
+   → 直接 Human Login
+   → Authorization
+   → 查看自己 Allowed Stores 的機敏報表
+```
+
+Sample 另有獨立的「解除門市 Device Binding（Demo）」操作，用來確認：
+
+```text
+Human Logout
+!=
+UNBIND_DEVICE
+```
+
+---
+
+## 「店長帳號 = 門市帳號」時怎麼處理
+
+即使正式環境最後使用相同 Google Account 做兩個流程，也必須把用途拆開：
 
 ```text
 Store Binding Ceremony
-→ 建立 / 驗證 Device Binding
+→ 目的：建立 / 驗證 Device Binding
 
-Human Ceremony
-→ 建立 Human Sensitive Session
+Human Authentication Ceremony
+→ 目的：建立 Human Session
 ```
 
-所以店長 Human Logout 不應解除 Device Binding。
+因此店長退出 Human Session 不應解除門市 Device Binding。
 
-但如果該 Google account 是多人共用門市帳號，它本身不能唯一證明是哪一位自然人；如果機敏權限需要 person-level ACL，Production 仍需取得唯一 `userId` 的額外個人驗證來源。
+但如果該 Google Account 實際上是多人共用門市帳號，它只能證明「這是該門市帳號」，不能唯一證明是哪一位自然人。若機敏報表採 person-level ACL，正式系統仍需取得唯一 `userId` 的個人驗證來源。
 
-## Repository layout
+---
+
+## Security Boundary
+
+以下都不能當成正式 Authorization：
 
 ```text
-SPEC.md
-sample/
+URL ?store=A001
+Client selectedStoreCode
+hidden menu / disabled option
+Browser localStorage
+可被 Client 任意修改的 role / allowedStores cookie
+Looker Studio filter
+iframe parameter
+```
+
+正式資料層至少必須 enforce 等效規則：
+
+```text
+requestedStoreCode in server-resolved allowedStoreCodes
+```
+
+Client-side Guard 只負責 UX，不是 Security Boundary。
+
+---
+
+## PIC 接手最需要確認的 5 件事
+
+```text
+1. 門市 Google Account → storeCode 的正式 SSOT 在哪？
+2. Device Binding 儲存在哪一層？如何 revoke / rotate？
+3. Human SSO 如何取得唯一 stable userId？
+4. userId → role → allowedStoreCodes 的正式 SSOT 在哪？
+5. requestedStoreCode ∈ allowedStoreCodes 最終在哪個 Server / Data Layer enforce？
+```
+
+這 5 題確認後，主要 Production Integration Path 就已經明確。
+
+---
+
+## Repo 結構
+
+```text
+SPEC.md                              Business / Acceptance SSOT
+sample/                              可操作 Executable Sample
   index.html
   app.js
   styles.css
+
 docs/
+  00-developer-quickstart-v0.3.md     開發者快速導讀
   01-login-state-machine-v0.1.md
   02-scenario-sequence-v0.1.md
   03-adapter-contract-v0.1.md
@@ -163,12 +307,25 @@ docs/
   05-report-data-boundary-v0.1.md
   06-state-ownership-runtime-v0.2.md
   07-store-device-binding-v0.3.md
-.github/workflows/pages.yml
+.github/workflows/pages.yml           GitHub Pages 自動部署
 ```
 
-## Production responsibility boundary
+規格優先順序：
 
-Reference Sample / specification defines：
+```text
+1. SPEC.md       → Business / Acceptance SSOT
+2. sample/       → Executable Behavior Reference
+3. docs/         → Detailed Technical Explanation
+4. Production    → PIC / implementation team
+```
+
+如果 Sample 與 `SPEC.md` 不一致，先確認需求，再同步修改 Sample；不能把 Sample code 的偶然行為自動視為新需求。
+
+---
+
+## Responsibility Boundary
+
+本 Reference Spec 負責定義：
 
 ```text
 Business Scenario
@@ -180,14 +337,15 @@ Acceptance Criteria
 Mock Report behavior
 ```
 
-PIC / PCSC Production implementation owns：
+PIC / PCSC Production implementation 負責：
 
 ```text
-Google Workspace / SSO implementation
+Google Workspace / Enterprise SSO
 Store Google Account → storeCode mapping SSOT
 Device Binding persistence / revoke / rotation
 Human Identity implementation
 user → role → allowed stores SSOT
+Server-side authoritative session
 Server-side authorization
 BigQuery RLS / Authorized Views / ACL
 Looker Studio integration
@@ -195,11 +353,15 @@ Audit / logging
 Optional MDM / Device Trust hardening
 ```
 
+---
+
 ## Status
 
 ```text
 Executable Reference Spec: v0.3
 Interactive Sample: implemented
+Developer Quickstart: implemented
 Store Google Account Device Binding: specified + mocked
+State Machine Inspector: implemented
 Production IAM / RLS / BI: out of scope
 ```
