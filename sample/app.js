@@ -12,7 +12,93 @@ const MOCK = {
   }
 };
 
+const MACHINE_SPEC = {
+  id: "pcsc-analytic-login-reference",
+  version: "0.2",
+  runtime: {
+    sample: "client-side/browser",
+    productionRule: "authorization and data access must be re-validated by trusted server/data layer"
+  },
+  initial: "BOOT",
+  context: [
+    "scenario",
+    "storeContext",
+    "humanSession",
+    "authorization",
+    "selectedStoreCode",
+    "viewMode"
+  ],
+  states: {
+    BOOT: {
+      on: {
+        STORE_CONTEXT_RESOLVED: "GENERAL_MODE",
+        STORE_CONTEXT_NONE: "PERSONAL_ENTRY"
+      }
+    },
+    GENERAL_MODE: {
+      on: {
+        REQUEST_SENSITIVE: [
+          { target: "SENSITIVE_MODE", guard: "canEnterSensitiveMode" },
+          { target: "HUMAN_AUTH_REQUIRED" }
+        ]
+      }
+    },
+    PERSONAL_ENTRY: {
+      on: {
+        REQUEST_SENSITIVE: [
+          { target: "SENSITIVE_MODE", guard: "canEnterSensitiveMode" },
+          { target: "HUMAN_AUTH_REQUIRED" }
+        ]
+      }
+    },
+    HUMAN_AUTH_REQUIRED: {
+      on: {
+        AUTH_SUCCESS: "HUMAN_AUTHENTICATED"
+      }
+    },
+    HUMAN_AUTHENTICATED: {
+      on: {
+        AUTHORIZATION_RESOLVED: "AUTHORIZATION_RESOLVED",
+        AUTHORIZATION_DENIED: "AUTHORIZATION_DENIED"
+      }
+    },
+    AUTHORIZATION_RESOLVED: {
+      on: {
+        ENTER_SENSITIVE: { target: "SENSITIVE_MODE", guard: "selectedStoreAllowed" }
+      }
+    },
+    AUTHORIZATION_DENIED: {
+      on: {
+        RETRY_HUMAN_AUTH: "HUMAN_AUTH_REQUIRED"
+      }
+    },
+    SENSITIVE_MODE: {
+      on: {
+        CHANGE_STORE: { target: "SENSITIVE_MODE", guard: "requestedStoreAllowed" },
+        VIEW_GENERAL: "GENERAL_MODE_OR_PERSONAL_ENTRY",
+        HUMAN_LOGOUT: "GENERAL_MODE_OR_PERSONAL_ENTRY",
+        IDLE_TIMEOUT: "GENERAL_MODE_OR_PERSONAL_ENTRY"
+      }
+    },
+    GENERAL_MODE_OR_PERSONAL_ENTRY: {
+      pseudo: true,
+      resolveBy: "storeContext.status === 'resolved' ? GENERAL_MODE : PERSONAL_ENTRY"
+    }
+  },
+  guards: {
+    canEnterSensitiveMode: "human authenticated AND authorization resolved AND selectedStoreCode in allowedStoreCodes",
+    selectedStoreAllowed: "selectedStoreCode in allowedStoreCodes",
+    requestedStoreAllowed: "requested store code in allowedStoreCodes"
+  },
+  adapters: {
+    StoreIdentityProvider: "resolve device/account/session to storeCode or none",
+    HumanIdentityProvider: "authenticate person and return stable user identity",
+    AuthorizationProvider: "resolve role and allowedStoreCodes for authenticated person"
+  }
+};
+
 const state = {
+  flowState: "BOOT",
   scenario: "store-a",
   storeContext: { status: "unknown", storeCode: null },
   humanSession: { status: "anonymous", userId: null, email: null, name: null },
@@ -35,14 +121,56 @@ function setMessage(text = "") {
   $("message").classList.toggle("hidden", !text);
 }
 
+function resolveBaseFlowState() {
+  return state.storeContext.status === "resolved" ? "GENERAL_MODE" : "PERSONAL_ENTRY";
+}
+
+function getGuardSnapshot() {
+  const humanAuthenticated = state.humanSession.status === "authenticated";
+  const authorizationResolved = state.authorization.status === "resolved";
+  const selectedStoreAllowed = Boolean(
+    state.selectedStoreCode &&
+    state.authorization.allowedStoreCodes.includes(state.selectedStoreCode)
+  );
+
+  return {
+    humanAuthenticated,
+    authorizationResolved,
+    selectedStoreAllowed,
+    canEnterSensitiveMode: humanAuthenticated && authorizationResolved && selectedStoreAllowed,
+    storeContextResolved: state.storeContext.status === "resolved",
+    productionReminder: "Frontend guard is demonstrative only. Production data access must enforce requested_store_code in allowed_store_codes server-side/data-side."
+  };
+}
+
+function getRuntimeSnapshot() {
+  return {
+    flowState: state.flowState,
+    runtimeLayer: "client-side/browser sample",
+    scenario: state.scenario,
+    storeContext: state.storeContext,
+    humanSession: state.humanSession,
+    authorization: state.authorization,
+    selectedStoreCode: state.selectedStoreCode,
+    viewMode: state.viewMode
+  };
+}
+
+function renderInspector() {
+  $("current-state-json").textContent = JSON.stringify(getRuntimeSnapshot(), null, 2);
+  $("machine-spec-json").textContent = JSON.stringify(MACHINE_SPEC, null, 2);
+  $("guard-state-json").textContent = JSON.stringify(getGuardSnapshot(), null, 2);
+}
+
 function resetHuman() {
   state.humanSession = { status: "anonymous", userId: null, email: null, name: null };
   state.authorization = { status: "unresolved", role: null, allowedStoreCodes: [] };
   state.selectedStoreCode = state.storeContext.storeCode;
-  state.viewMode = state.storeContext.status === "resolved" ? "general" : "general";
+  state.viewMode = "general";
 }
 
 function boot(scenario) {
+  state.flowState = "BOOT";
   state.scenario = scenario;
   state.storeContext = { status: "unknown", storeCode: null };
   resetHuman();
@@ -52,33 +180,43 @@ function boot(scenario) {
   if (scenario === "store-a") {
     state.storeContext = { status: "resolved", storeCode: "A001" };
     state.selectedStoreCode = "A001";
+    state.flowState = "GENERAL_MODE";
     log(`StoreIdentityProvider → <code>A001</code>`);
+    log(`<code>STORE_CONTEXT_RESOLVED</code> → GENERAL_MODE`);
   } else {
     state.storeContext = { status: "none", storeCode: null };
     state.selectedStoreCode = null;
+    state.flowState = "PERSONAL_ENTRY";
     log(`StoreIdentityProvider → <code>none</code>`);
+    log(`<code>STORE_CONTEXT_NONE</code> → PERSONAL_ENTRY`);
   }
   render();
 }
 
 function beginSensitiveFlow() {
-  if (state.humanSession.status === "authenticated" && state.authorization.status === "resolved") {
+  if (getGuardSnapshot().canEnterSensitiveMode) {
     enterSensitiveMode();
     return;
   }
+  state.flowState = "HUMAN_AUTH_REQUIRED";
   $("human-panel").classList.remove("hidden");
   setMessage("請先完成個人身分驗證。此處為 Mock；正式環境由企業 SSO Adapter 取代。");
-  log(`<code>GENERAL/PERSONAL_ENTRY</code> → HUMAN_AUTH_REQUIRED`);
+  log(`<code>REQUEST_SENSITIVE</code> → HUMAN_AUTH_REQUIRED`);
+  render();
 }
 
 function authenticate(key) {
   const user = MOCK.users[key];
   state.humanSession = { status: "authenticated", userId: user.userId, email: user.email, name: user.name };
-  state.authorization = { status: "resolved", role: user.role, allowedStoreCodes: [...user.allowedStoreCodes] };
+  state.flowState = "HUMAN_AUTHENTICATED";
   log(`HumanIdentityProvider → <code>${user.userId}</code> (${user.name})`);
+  log(`<code>AUTH_SUCCESS</code> → HUMAN_AUTHENTICATED`);
+
+  state.authorization = { status: "resolved", role: user.role, allowedStoreCodes: [...user.allowedStoreCodes] };
   log(`AuthorizationProvider → <code>${user.role}</code>, stores=[${user.allowedStoreCodes.join(", ")}]`);
 
   if (!user.allowedStoreCodes.length) {
+    state.flowState = "AUTHORIZATION_DENIED";
     state.viewMode = "general";
     state.selectedStoreCode = state.storeContext.storeCode;
     setMessage("個人身分驗證成功，但沒有任何機敏門市授權。Google / SSO 登入成功不等於具有報表權限。");
@@ -86,6 +224,9 @@ function authenticate(key) {
     render();
     return;
   }
+
+  state.flowState = "AUTHORIZATION_RESOLVED";
+  log(`<code>AUTHORIZATION_RESOLVED</code>`);
 
   if (state.storeContext.storeCode && user.allowedStoreCodes.includes(state.storeContext.storeCode)) {
     state.selectedStoreCode = state.storeContext.storeCode;
@@ -101,24 +242,29 @@ function authenticate(key) {
 }
 
 function enterSensitiveMode() {
-  const allowed = state.humanSession.status === "authenticated" &&
-    state.authorization.status === "resolved" &&
-    state.selectedStoreCode &&
-    state.authorization.allowedStoreCodes.includes(state.selectedStoreCode);
-
-  if (!allowed) {
+  if (!getGuardSnapshot().canEnterSensitiveMode) {
     setMessage("Sensitive Mode Guard 拒絕進入。請確認 Human Identity、Authorization 與 Selected Store。");
+    render();
     return;
   }
+  state.flowState = "SENSITIVE_MODE";
   state.viewMode = "sensitive";
   setMessage();
-  log(`<code>SENSITIVE_MODE</code> → ${state.selectedStoreCode}`);
+  log(`<code>ENTER_SENSITIVE</code> → SENSITIVE_MODE (${state.selectedStoreCode})`);
+  render();
+}
+
+function navigateGeneral() {
+  state.viewMode = "general";
+  state.flowState = resolveBaseFlowState();
+  log(`<code>VIEW_GENERAL</code> → ${state.flowState}`);
   render();
 }
 
 function logoutHuman(reason = "manual logout") {
   const keptStore = state.storeContext.storeCode;
   resetHuman();
+  state.flowState = resolveBaseFlowState();
   log(`clear Human Identity + Authorization (${reason})`);
   if (keptStore) {
     log(`keep Store Context=<code>${keptStore}</code> → GENERAL_MODE`);
@@ -133,14 +279,26 @@ function changeSelectedStore(code) {
   if (!state.authorization.allowedStoreCodes.includes(code)) {
     setMessage("拒絕切換：Selected Store 不在 Allowed Stores。正式環境後端亦須再次驗證。");
     log(`<code>DENY</code> unauthorized selectedStore=${code}`);
+    render();
     return;
   }
   state.selectedStoreCode = code;
-  log(`Selected Store → <code>${code}</code>`);
+  state.flowState = "SENSITIVE_MODE";
+  log(`<code>CHANGE_STORE</code> → ${code}`);
   render();
 }
 
+function switchInspectorTab(tab) {
+  document.querySelectorAll("[data-inspector-tab]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.inspectorTab === tab);
+  });
+  document.querySelectorAll("[data-inspector-panel]").forEach((panel) => {
+    panel.classList.toggle("hidden", panel.dataset.inspectorPanel !== tab);
+  });
+}
+
 function render() {
+  $("flow-context").textContent = state.flowState;
   $("store-context").textContent = state.storeContext.status === "resolved" ? storeLabel(state.storeContext.storeCode) : "None";
   $("human-context").textContent = state.humanSession.status === "authenticated" ? `${state.humanSession.name}` : "Anonymous";
   $("auth-context").textContent = state.authorization.status === "resolved" ? `${state.authorization.role} · ${state.authorization.allowedStoreCodes.length} 店` : "Unresolved";
@@ -182,13 +340,16 @@ function render() {
     $("sensitive-metric-2").textContent = store.rank;
     $("authorization-explain").textContent = `${state.humanSession.name} 的 Allowed Stores：${state.authorization.allowedStoreCodes.map(storeLabel).join("、")}。目前 Selected Store=${storeLabel(state.selectedStoreCode)}。此頁數字皆為 Mock；正式資料應由受後端權限保護的 BI / Data Layer 提供。`;
   }
+
+  renderInspector();
 }
 
 document.querySelectorAll("[data-scenario]").forEach((button) => button.addEventListener("click", () => boot(button.dataset.scenario)));
 document.querySelectorAll("[data-user]").forEach((button) => button.addEventListener("click", () => authenticate(button.dataset.user)));
+document.querySelectorAll("[data-inspector-tab]").forEach((button) => button.addEventListener("click", () => switchInspectorTab(button.dataset.inspectorTab)));
 $("sensitive-nav").addEventListener("click", beginSensitiveFlow);
 $("personal-login-cta").addEventListener("click", beginSensitiveFlow);
-$("general-nav").addEventListener("click", () => { state.viewMode = "general"; render(); });
+$("general-nav").addEventListener("click", navigateGeneral);
 $("logout-human").addEventListener("click", () => logoutHuman("manual logout"));
 $("simulate-timeout").addEventListener("click", () => logoutHuman("idle timeout"));
 $("store-select").addEventListener("change", (e) => changeSelectedStore(e.target.value));
