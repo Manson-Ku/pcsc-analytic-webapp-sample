@@ -3,16 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>PCSC Analytic Web App｜登入場景 Sample</title>
+    <title>PCSC Analytic Web App｜登入與門市裝置綁定 Sample</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <main class="app-shell">
       <header class="topbar">
         <div>
-          <div class="eyebrow">REFERENCE SAMPLE</div>
+          <div class="eyebrow">EXECUTABLE REFERENCE SPEC</div>
           <h1>PCSC Analytic Web App</h1>
-          <p>登入、門市 Context 與機敏報表權限場景示範</p>
+          <p>門市 Device Binding、Human Session、Authorization 與報表權限場景示範</p>
         </div>
         <div class="mock-badge">DEMO / MOCK DATA</div>
       </header>
@@ -20,16 +20,16 @@
       <section class="scenario-panel" aria-label="Demo scenario controls">
         <div>
           <strong>入口情境</strong>
-          <span>差異在於「進入網站時是否已帶有固定門市 Context」；切換後會重新啟動狀態機。</span>
+          <span>切換後重新啟動狀態機；差異是 App BOOT 時是否已有有效的 Store Device Binding。</span>
         </div>
         <div class="scenario-actions">
-          <button class="secondary active" data-scenario="store-a" title="模擬門市現場共用裝置，例如 WebSC 或門市平板。系統進站時已能辨識目前為 A 店。">
-            A 店門市共用裝置
-            <small>WebSC／門市平板 · 已有 A 店 Context</small>
+          <button class="secondary active" data-scenario="bound-store-a">
+            已綁定 A 店的裝置
+            <small>之前已用 A 店門市 Google 帳號完成 Binding</small>
           </button>
-          <button class="secondary" data-scenario="personal" title="模擬沒有固定門市身分的裝置，例如公司筆電、手機或其他電腦。需由使用者個人登入後取得授權門市。">
-            非門市共用裝置
-            <small>公司筆電／手機／其他電腦 · 無 Store Context</small>
+          <button class="secondary" data-scenario="unbound">
+            尚未綁定的裝置
+            <small>手機／新電腦／新 Browser 等，沒有 Store Context</small>
           </button>
         </div>
       </section>
@@ -41,14 +41,19 @@
           <small>目前狀態機所在節點</small>
         </article>
         <article class="status-card">
+          <span class="status-label">Device Binding</span>
+          <strong id="binding-context">解析中…</strong>
+          <small>這個 Browser / Device 是否已綁定門市</small>
+        </article>
+        <article class="status-card">
           <span class="status-label">Store Context</span>
           <strong id="store-context">解析中…</strong>
-          <small>目前裝置 / session 代表哪一家店</small>
+          <small>由有效 Device Binding 解析出的門市</small>
         </article>
         <article class="status-card">
           <span class="status-label">Human Identity</span>
           <strong id="human-context">Anonymous</strong>
-          <small>目前是否已辨識操作的人</small>
+          <small>目前是否已辨識機敏操作人員</small>
         </article>
         <article class="status-card">
           <span class="status-label">Authorization</span>
@@ -58,7 +63,7 @@
         <article class="status-card">
           <span class="status-label">Selected Store</span>
           <strong id="selected-context">—</strong>
-          <small>目前 UI 正在查看的門市</small>
+          <small>目前 UI 想查看的門市</small>
         </article>
       </section>
 
@@ -70,23 +75,24 @@
           <button id="sensitive-nav" class="nav-button">進階 / 機敏報表</button>
 
           <div id="human-panel" class="human-panel hidden">
-            <div class="panel-title">模擬個人驗證</div>
-            <p>正式系統由 PIC / PCSC 既有 SSO Adapter 取代。</p>
+            <div class="panel-title">模擬 Human 驗證</div>
+            <p>這是另一個 Session，與門市 Device Binding 分離。</p>
             <button class="identity-button" data-user="manager">
               王店長
-              <small>STORE_MANAGER</small>
+              <small>STORE_MANAGER · Allowed A/B</small>
             </button>
             <button class="identity-button" data-user="advisor">
               陳區顧問
-              <small>AREA_ADVISOR</small>
+              <small>AREA_ADVISOR · Allowed A/B/C/D</small>
             </button>
             <button class="identity-button muted" data-user="unauthorized">
               未授權公司使用者
-              <small>OTHER</small>
+              <small>OTHER · Allowed none</small>
             </button>
           </div>
 
-          <button id="logout-human" class="text-button hidden">退出個人身分</button>
+          <button id="logout-human" class="text-button hidden">退出 Human Session</button>
+          <button id="unbind-device" class="text-button hidden">解除門市 Device Binding（Demo）</button>
         </aside>
 
         <section class="content-area">
@@ -98,13 +104,19 @@
                 <div class="eyebrow">GENERAL MODE</div>
                 <h2 id="general-title">一般門市報表</h2>
               </div>
-              <span class="access-chip general">Store Context</span>
+              <span class="access-chip general">Device Binding → Store Context</span>
             </div>
 
             <div id="general-empty" class="empty-state hidden">
-              <h3>目前沒有門市 Context</h3>
-              <p>這表示使用者是從「非門市共用裝置」進入，例如公司筆電、手機或其他電腦。裝置本身不代表任何門市，仍可透過個人身分驗證後查看自己被授權的機敏報表。</p>
-              <button id="personal-login-cta" class="primary">登入查看機敏報表</button>
+              <h3>這個裝置目前沒有門市 Device Binding</h3>
+              <p>
+                可以先用門市 Google Workspace 帳號完成一次綁定，讓這個 Browser / Device 之後直接帶出該店的一般報表；
+                也可以不綁定，直接以個人身分登入查看自己被授權的機敏報表。
+              </p>
+              <div class="empty-actions">
+                <button id="bind-store-a" class="primary">用 A 店門市 Google 帳號綁定此裝置（Mock）</button>
+                <button id="personal-login-cta" class="secondary">不綁定，直接做個人登入</button>
+              </div>
             </div>
 
             <div id="general-data" class="report-grid">
@@ -120,7 +132,10 @@
               </article>
               <article class="metric-card wide">
                 <span>門市摘要</span>
-                <p>此區代表可依門市 Context 顯示、但不需要辨識每一位門市員工身分的一般資訊。</p>
+                <p>
+                  此區代表「門市裝置已綁定，所以知道這是 A 店」後可顯示的一般資料。
+                  這裡不需要知道目前是哪一位員工，也不等於取得任何 Human Sensitive Authorization。
+                </p>
               </article>
             </div>
           </section>
@@ -159,10 +174,10 @@
 
             <div class="timeout-box">
               <div>
-                <strong>Shared-device timeout demo</strong>
-                <p>模擬門市共用裝置忘記退出個人身分：只清除 Human Session，不清除 Store Context。</p>
+                <strong>Human Session timeout demo</strong>
+                <p>模擬店長忘記退出：只清除 Human Session / Authorization，不解除門市 Device Binding。</p>
               </div>
-              <button id="simulate-timeout" class="secondary">模擬 Timeout</button>
+              <button id="simulate-timeout" class="secondary">模擬 Human Timeout</button>
             </div>
           </section>
         </section>
@@ -173,11 +188,11 @@
               <div class="eyebrow">STATE MACHINE INSPECTOR</div>
               <h2>狀態機</h2>
             </div>
-            <span class="runtime-chip">CLIENT-SIDE SAMPLE</span>
+            <span class="runtime-chip">CLIENT-SIDE MOCK</span>
           </div>
 
           <p class="inspector-note">
-            Sample 狀態機在 Browser 執行；Production 必須依 Ownership 規則，把 Identity / Authorization 真相放到可信任的 Server，資料列權限再由 Data Layer enforce。
+            Sample 為靜態頁，因此把 Device Binding / Human Session 都 Mock 在 Browser；正式環境必須把這些可信 state 放在 Server。
           </p>
 
           <div class="inspector-tabs" role="tablist" aria-label="State inspector views">
@@ -200,45 +215,41 @@
           <section class="inspector-panel hidden" data-inspector-panel="ownership">
             <div class="json-title">PRODUCTION STATE OWNERSHIP</div>
             <pre class="json-view">{
-  "principle": "Client proposes interaction state; Server owns identity/authorization truth; Data Layer enforces row access",
   "client": {
-    "location": "Browser / Web App",
     "owns": [
       "requestedView",
       "selectedStoreCode",
-      "UI filters",
-      "UX preferences"
+      "UI preference",
+      "request bind / unbind"
     ],
-    "mayPersistIn": [
-      "memory",
-      "sessionStorage",
-      "localStorage",
-      "non-sensitive cookie"
-    ],
-    "trust": "NOT authorization truth"
+    "trust": "PROPOSED INTERACTION STATE"
   },
   "server": {
-    "location": "Server / BFF / Session / Enterprise Identity Layer",
-    "owns": [
-      "verifiedStoreContext",
-      "humanIdentity",
-      "authenticationStatus",
-      "role",
-      "allowedStoreCodes",
-      "sensitiveSessionExpiry"
-    ],
+    "owns": {
+      "storeDevice": [
+        "deviceBindingId",
+        "deviceBindingStatus",
+        "verifiedStoreContext"
+      ],
+      "human": [
+        "humanUserId",
+        "authenticationStatus",
+        "role",
+        "allowedStoreCodes",
+        "sensitiveSessionExpiry"
+      ]
+    },
+    "invariant": "logoutHuman != unbindDevice",
     "trust": "AUTHORITATIVE"
   },
   "dataLayer": {
-    "location": "Trusted API / BigQuery RLS / Authorized View / ACL",
-    "owns": [
-      "finalRowAccessDecision"
-    ],
+    "owns": "final row access",
     "guard": "requestedStoreCode in allowedStoreCodes"
   },
-  "cookieRule": {
-    "preferenceCookie": "client editable is acceptable",
-    "securitySession": "prefer opaque session id + HttpOnly + Secure + SameSite; server validates"
+  "bindingCeremony": {
+    "proof": "verified store Google Workspace identity",
+    "result": "server-side Device Binding",
+    "note": "Google login session itself is not the Device Binding"
   }
 }</pre>
           </section>
@@ -262,7 +273,7 @@
       </section>
 
       <footer>
-        Reference Spec v0.2 · Browser state machine is demonstrative; production identity / authorization / RLS truth belongs to trusted server and data layers.
+        Reference Spec v0.3 · Store Google Account establishes Device Binding; Human Session and Device Binding have independent lifecycles.
       </footer>
     </main>
 
