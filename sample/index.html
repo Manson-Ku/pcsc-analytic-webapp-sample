@@ -199,6 +199,7 @@
             <button class="inspector-tab active" data-inspector-tab="current">Current State</button>
             <button class="inspector-tab" data-inspector-tab="machine">Machine JSON</button>
             <button class="inspector-tab" data-inspector-tab="ownership">Ownership</button>
+            <button class="inspector-tab" data-inspector-tab="integration">Integration Map</button>
             <button class="inspector-tab" data-inspector-tab="guards">Guards</button>
           </div>
 
@@ -251,6 +252,43 @@
     "result": "server-side Device Binding",
     "note": "Google login session itself is not the Device Binding"
   }
+}</pre>
+          </section>
+
+          <section class="inspector-panel hidden" data-inspector-panel="integration">
+            <div class="json-title">MOCK → PRODUCTION REPLACEMENT MAP</div>
+            <pre class="json-view">{
+  "StoreAccountResolver": {
+    "question": "門市 Google Account 對應哪個 storeCode？",
+    "mock": "A 店 Google Account → A001",
+    "production": "GWS / AOM / PCSC mapping SSOT",
+    "output": "storeCode"
+  },
+  "StoreDeviceBindingProvider": {
+    "question": "目前 Browser / Device 是否已有有效門市綁定？",
+    "mock": "Browser JS state",
+    "production": "Server-side Binding Store / Session",
+    "output": "bindingId + status + storeCode"
+  },
+  "HumanIdentityProvider": {
+    "question": "現在操作機敏報表的人是誰？",
+    "mock": "王店長 / 陳區顧問 buttons",
+    "production": "Enterprise SSO / Google Workspace IdP",
+    "output": "stable userId"
+  },
+  "AuthorizationProvider": {
+    "question": "這個人能看哪些門市？",
+    "mock": "hard-coded allowedStoreCodes",
+    "production": "AOM / HR / ACL SSOT",
+    "output": "role + allowedStoreCodes[]"
+  },
+  "SensitiveDataGuard": {
+    "question": "這次資料請求能不能讀這家店？",
+    "mock": "client-side guard",
+    "production": "Trusted API + BQ RLS / Authorized View / ACL",
+    "rule": "requestedStoreCode in allowedStoreCodes"
+  },
+  "implementationRule": "Replace adapters, preserve business state machine and invariants"
 }</pre>
           </section>
 
