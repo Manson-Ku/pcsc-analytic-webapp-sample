@@ -10,7 +10,23 @@ Executable Reference Specification for the PCSC analytics Web App login, authori
 - **Interactive Sample:** [`sample/`](./sample/)
 - **Expected GitHub Pages URL:** `https://manson-ku.github.io/pcsc-analytic-webapp-sample/`
 
-GitHub Pages deploys automatically from `main` through `.github/workflows/pages.yml`.
+The repository includes `.github/workflows/pages.yml` for automatic deployment from `main`.
+
+### One-time GitHub Pages activation
+
+GitHub requires the repository owner to enable Pages once before the workflow token can deploy the site.
+
+In GitHub:
+
+```text
+Repository
+→ Settings
+→ Pages
+→ Build and deployment
+→ Source: GitHub Actions
+```
+
+After this one-time setting is enabled, re-run the `Deploy GitHub Pages` workflow or push any new commit to `main`. Future `main` updates deploy automatically.
 
 ## What this repository means
 
@@ -139,6 +155,7 @@ All names, accounts, store codes, KPIs, revenue values, rankings, and report val
 - Executable Reference Specification: `v0.1`
 - Interactive Mock Report Sample: implemented
 - GitHub Pages deployment workflow: implemented
+- GitHub Pages site activation: one-time repository setting required
 - Production SSO / IAM: out of scope
 - Production BigQuery RLS: PIC / implementation-team responsibility
 - Production Looker Studio / BI integration: PIC / implementation-team responsibility
