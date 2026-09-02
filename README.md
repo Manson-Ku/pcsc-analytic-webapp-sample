@@ -24,6 +24,7 @@ Business Rules
 - **開發者 5 分鐘導讀：** [`docs/00-developer-quickstart-v0.3.md`](./docs/00-developer-quickstart-v0.3.md)
 - **門市 Device Binding 規格：** [`docs/07-store-device-binding-v0.3.md`](./docs/07-store-device-binding-v0.3.md)
 - **State Ownership：** [`docs/06-state-ownership-runtime-v0.2.md`](./docs/06-state-ownership-runtime-v0.2.md)
+- **State Storage 建議：** [`docs/08-state-storage-recommendation-v0.3.md`](./docs/08-state-storage-recommendation-v0.3.md)
 - **Adapter Contract：** [`docs/03-adapter-contract-v0.1.md`](./docs/03-adapter-contract-v0.1.md)
 
 ---
@@ -140,6 +141,34 @@ Final Enforcement
 
 Sample 是純靜態 GitHub Pages，因此為了展示，以上狀態目前全部 Mock 在 Browser。這是 Demo runtime，不是 Production Security Architecture。
 
+### 建議 Storage 類型
+
+這裡只定義 persistence class，不綁死 Redis / SQL / Firestore 等產品：
+
+```text
+UI / Selected Store
+→ Browser memory / route / sessionStorage
+
+UX Preference
+→ localStorage / non-sensitive cookie
+
+Store Device Binding
+→ durable server-side Binding Store / enterprise DB
+→ Browser 只持 opaque binding/session id
+
+Human Sensitive Session
+→ short-lived server-side Session Store / server-verified IdP session
+
+Authorization
+→ AOM / HR / ACL authoritative SSOT
+→ 必要時只做 short-TTL server cache
+
+Final Row Access
+→ Trusted API / BigQuery RLS / Authorized View / existing ACL
+```
+
+詳細：[`docs/08-state-storage-recommendation-v0.3.md`](./docs/08-state-storage-recommendation-v0.3.md)
+
 ---
 
 ## 開發者建議閱讀順序
@@ -152,8 +181,9 @@ Sample 是純靜態 GitHub Pages，因此為了展示，以上狀態目前全部
 3. SPEC.md
 4. docs/07-store-device-binding-v0.3.md
 5. docs/06-state-ownership-runtime-v0.2.md
-6. docs/03-adapter-contract-v0.1.md
-7. docs/05-report-data-boundary-v0.1.md
+6. docs/08-state-storage-recommendation-v0.3.md
+7. docs/03-adapter-contract-v0.1.md
+8. docs/05-report-data-boundary-v0.1.md
 ```
 
 Sample 右側的 `State Machine Inspector` 也可以直接切換：
@@ -162,6 +192,7 @@ Sample 右側的 `State Machine Inspector` 也可以直接切換：
 Current State   → 現在 Runtime State
 Machine JSON    → States / Events / Transitions
 Ownership       → Client / Server / Data Layer 誰負責什麼
+Storage         → 各類 State 建議放在哪裡、生命週期多長
 Integration Map → Mock 正式落地時要替換哪個 Adapter
 Guards          → 目前 Guard 判斷結果
 ```
@@ -307,6 +338,7 @@ docs/
   05-report-data-boundary-v0.1.md
   06-state-ownership-runtime-v0.2.md
   07-store-device-binding-v0.3.md
+  08-state-storage-recommendation-v0.3.md
 .github/workflows/pages.yml           GitHub Pages 自動部署
 ```
 
@@ -363,5 +395,6 @@ Interactive Sample: implemented
 Developer Quickstart: implemented
 Store Google Account Device Binding: specified + mocked
 State Machine Inspector: implemented
+State Storage Recommendation: implemented
 Production IAM / RLS / BI: out of scope
 ```
