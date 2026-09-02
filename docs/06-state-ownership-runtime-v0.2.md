@@ -1,27 +1,26 @@
-# State Ownership / Runtime / Mutation Model v0.2
+# State Ownership / Runtime / Mutation Model v0.3
 
 ## 目的
 
-本文件回答四個問題：
+本文件回答五個問題：
 
-1. **狀態機是什麼？**
-2. **狀態放在哪一層？**
-3. **每一層的職責是什麼？**
-4. **狀態由誰、透過什麼事件變動？**
+1. 狀態機是什麼？
+2. 狀態放在哪一層？
+3. 每一層的職責是什麼？
+4. 狀態由誰、透過什麼事件變動？
+5. **Store Device Binding 與 Human Session 為什麼必須是不同 state domain？**
 
 核心原則：
 
-> **Client owns interaction state; Server owns identity and authorization truth; Data layer owns final row-access enforcement.**
+> **Client owns interaction state; Server owns Device Binding, identity and authorization truth; Data layer owns final row-access enforcement.**
 
-本 Sample 為了可操作展示，將完整狀態機模擬在 Browser；這不代表 Production 應把可信身分與授權真相放在 Client。
+本 Sample 為了可操作展示，將狀態都模擬在 Browser；Production 不得因此把可信 Device Binding / Human Identity / Authorization 真相交給 Client。
 
 ---
 
 ## 1. State Machine 的定義
 
-此專案所稱「狀態機」不是單純一個 JSON，也不是一個 `logged_in=true/false`。
-
-它是：
+此專案所稱狀態機是：
 
 ```text
 States
@@ -32,106 +31,76 @@ States
 + State ownership rules
 ```
 
-例如：
+目前至少有兩組不同生命週期的 Server-side state domain：
 
 ```text
-GENERAL_MODE
-  -- REQUEST_SENSITIVE --> HUMAN_AUTH_REQUIRED
-
-HUMAN_AUTH_REQUIRED
-  -- AUTH_SUCCESS --> HUMAN_AUTHENTICATED
-
-HUMAN_AUTHENTICATED
-  -- AUTHORIZATION_RESOLVED --> AUTHORIZATION_RESOLVED
-
-AUTHORIZATION_RESOLVED
-  -- ENTER_SENSITIVE [selectedStoreAllowed] --> SENSITIVE_MODE
+A. Store Device Binding State
+B. Human / Sensitive Session State
 ```
 
-Guard 決定某一個 transition 是否允許發生。
+這兩組狀態可以同時存在，但不得互相等同。
 
 ---
 
-## 2. Production 應拆成三個狀態層
+## 2. Store Device Binding State
 
-### Layer A｜Client Interaction State
+### 目的
 
-位置：Browser / Web App。
+回答：
 
-主要內容：
+> 「目前這個 Browser / Device 是否已被綁定為某一家門市入口？」
+
+Reference Decision：首次以門市 Google Workspace 帳號完成綁定。
 
 ```text
-requestedView
-selectedStoreCode
-navigation state
-UI filters
-return URL
-panel open/close
-store context hint / last selected store preference
+門市 Google Identity
+→ StoreAccountResolver
+→ storeCode
+→ Server 建立 Device Binding
 ```
 
-Client 可以直接變更這些狀態。
-
-例如：
+例如 Server State：
 
 ```json
 {
-  "requestedView": "sensitive",
-  "selectedStoreCode": "B001"
+  "device_binding": {
+    "binding_id": "DEVICE-BIND-001",
+    "status": "ACTIVE",
+    "store_code": "A001",
+    "verified_by_store_google_account": "store-a@7-11.example"
+  },
+  "verified_store_context": {
+    "store_code": "A001"
+  }
 }
 ```
 
-這表示：
+Google Account login 是建立 Binding 的 ceremony，不是 Binding 本身。
 
-> Browser 想看 B001。
-
-不是：
-
-> Browser 已被授權看 B001。
-
-Client State 是 **proposed / interaction state**，不是 Authorization Truth。
-
-可選擇持久化於：
+因此後續 App BOOT 應先由 Server 驗證既有 Binding：
 
 ```text
-memory
-sessionStorage
-localStorage
-non-sensitive cookie
-URL query / route
+BOOT
+→ RESOLVE_DEVICE_BINDING
+→ ACTIVE binding
+→ verifiedStoreContext=A001
+→ GENERAL_MODE
 ```
-
-但不能因為狀態存在 Browser 就自動視為可信。
 
 ---
 
-### Layer B｜Server Session / Identity / Authorization State
+## 3. Human / Sensitive Session State
 
-位置：Server / BFF / Session Service / Enterprise Identity Layer。
+### 目的
 
-這一層是正式系統的可信任狀態。
+回答：
 
-主要內容：
-
-```text
-verified Store Context
-Human Identity
-Authentication status
-Role
-Allowed Stores
-Sensitive / elevated session status
-Session expiry
-```
+> 「現在操作機敏資料的人是誰？他能看哪些門市？」
 
 例如：
 
 ```json
 {
-  "session_id": "opaque-session-id",
-  "store_context": {
-    "store_code": "A001",
-    "verified": true
-  },
   "human": {
     "user_id": "USER-001",
     "authenticated": true
@@ -147,22 +116,109 @@ Session expiry
 }
 ```
 
-Client 不得直接宣告：
+Human Session 通常較短，必須有 logout / timeout。
+
+---
+
+## 4. 兩組 Server State 的關係
+
+已綁定 A 店裝置、尚未有人登入：
 
 ```text
-I am USER-001
-I am STORE_MANAGER
-I can access A001/B001
+deviceBinding=A001
+human=null
+→ A001 General Mode
 ```
 
-這些只能由可信來源建立或驗證，例如：
+王店長登入：
 
 ```text
-Enterprise SSO
-Google Workspace Identity
-AOM / employee mapping
-Authorization SSOT
-Server session
+deviceBinding=A001
+human=USER-001
+allowedStores=[A001,B001]
+→ Sensitive Mode
+```
+
+王店長登出 / timeout：
+
+```text
+deviceBinding=A001       KEEP
+human=null               CLEAR
+authorization=[]         CLEAR
+sensitiveSession=OFF     CLEAR
+→ A001 General Mode
+```
+
+所以是正式 invariant：
+
+```text
+logoutHuman() != unbindDevice()
+IDLE_TIMEOUT != unbindDevice()
+```
+
+只有另一個明確事件：
+
+```text
+UNBIND_DEVICE
+```
+
+才改變 Device Binding。
+
+---
+
+## 5. Production 三層 State Responsibility
+
+### Layer A｜Client Interaction State
+
+位置：Browser / Web App。
+
+Client 可擁有：
+
+```text
+requestedView
+selectedStoreCode
+navigation state
+UI filters
+return URL
+panel state
+UX preferences
+requestBind / requestUnbind action
+```
+
+Client 可以「要求綁定」或「要求看 B001」，但不能自己宣告：
+
+```text
+I am a bound store device
+I am A001
+I am USER-001
+I can access B001
+```
+
+---
+
+### Layer B｜Server Device / Identity / Authorization State
+
+位置：Server / BFF / Session Service / Enterprise Identity Layer。
+
+Server 是以下真相的 SSOT：
+
+```text
+deviceBinding.bindingId
+deviceBinding.status
+verifiedStoreContext
+human.userId
+authentication status
+role
+allowedStoreCodes
+sensitiveSession.active
+sensitiveSession.expiresAt
+```
+
+Reference 內建兩個不同 session lifecycle：
+
+```text
+Longer-lived Store Device Binding
+Shorter-lived Human Sensitive Session
 ```
 
 ---
@@ -171,69 +227,39 @@ Server session
 
 位置：Trusted API / BigQuery RLS / Authorized View / existing enterprise ACL。
 
-這一層負責最後一個問題：
-
-> 這一次資料請求到底可以讀哪些 rows？
-
-例如 Client 提出：
+最後仍需 enforce：
 
 ```text
-requestedStoreCode = B001
+requestedStoreCode in allowedStoreCodes
 ```
 
-Server 已知：
-
-```text
-allowedStoreCodes = [A001, B001]
-```
-
-正式資料請求必須滿足：
-
-```text
-B001 in [A001, B001]
-→ ALLOW
-```
-
-如果 Client 用 DevTools 改成：
-
-```text
-requestedStoreCode = C001
-```
-
-則：
-
-```text
-C001 not in [A001, B001]
-→ DENY / 403 / no rows
-```
-
-Looker Studio filter、iframe parameter 或 UI 隱藏都不能取代這一層。
+Device Binding=A001 不代表 Human 自動有 A001 Sensitive Authorization。
 
 ---
 
-## 3. State Ownership Matrix
+## 6. State Ownership Matrix
 
-| State / Context | Client 可讀 | Client 可直接改 | Server / Trusted Layer 是 SSOT | 最終用途 |
+| State / Context | Client 可讀 | Client 可直接改 | Server / Trusted Layer 是 SSOT | 生命週期 |
 |---|---:|---:|---:|---|
-| `requestedView` | Yes | Yes | No | UI navigation |
-| `selectedStoreCode` | Yes | Yes | No；Server 必須驗證 | 使用者想看的門市 |
-| `lastSelectedStore` | Yes | Yes | No | UX preference |
-| `storeContextHint` | Yes | Yes | No | 提示 / bootstrap |
-| `verifiedStoreContext` | Yes | No | Yes | 一般門市 Context |
-| `human.userId` | Yes | No | Yes | Human Identity |
-| `authenticated` | Yes | No | Yes | Authentication truth |
-| `role` | Yes | No | Yes | Authorization context |
-| `allowedStoreCodes` | Yes | No | Yes | Data access scope |
-| `sensitiveSession.active` | Yes | No | Yes | 機敏模式有效期 |
-| report rows | Read result only | No | Yes / Data Layer | 最終資料結果 |
+| `requestedView` | Yes | Yes | No | UI |
+| `selectedStoreCode` | Yes | Yes | No；Server/Data Guard 驗證 | UI |
+| `deviceBinding.status` | Projection | No | Yes | 長 |
+| `deviceBinding.bindingId` | 不必暴露完整值 | No | Yes | 長 |
+| `verifiedStoreContext` | Yes | No | Yes | 跟 Binding |
+| `human.userId` | Yes | No | Yes | 短 |
+| `authenticated` | Yes | No | Yes | 短 |
+| `role` | Yes | No | Yes | 短 / 可重解 |
+| `allowedStoreCodes` | Yes | No | Yes | 短 / 可重解 |
+| `sensitiveSession.active` | Yes | No | Yes | 短 |
+| report rows | Read result only | No | Yes / Data Layer | request |
 
 ---
 
-## 4. Cookie / Browser Storage 原則
+## 7. Cookie / Browser Storage 原則
 
-### 可以由 Client 自主管理
+### UX Preference
 
-例如：
+可由 Client 管理：
 
 ```text
 preferred_store=A001
@@ -241,21 +267,23 @@ last_report=sales
 sidebar_collapsed=true
 ```
 
-這些只是 Preference。
+### Store Device Binding Session
 
-### 不應把可信授權直接放成可任意修改 Cookie
-
-不建議：
+Reference 建議 Browser 只持有 opaque identifier，例如：
 
 ```text
-role=STORE_MANAGER
-allowedStores=A001,B001
-isSensitive=true
+store_device_binding=<opaque id>
 ```
 
-然後 Server 直接相信 Browser 回傳內容。
+Server 解析 Binding record 並確認：
 
-正式 Session 建議至少符合等效原則：
+```text
+ACTIVE
+not revoked
+not expired (if policy exists)
+```
+
+若採 Cookie，建議等效：
 
 ```text
 HttpOnly
@@ -263,214 +291,177 @@ Secure
 SameSite
 ```
 
-Cookie 可以只保存 opaque session id；真正的 Identity / Authorization State 留在 Server Session Store。
+不應讓 Browser 自行宣告：
 
-若正式架構採 signed/encrypted token，也必須由 Server 驗證完整性與有效期。
+```text
+isStoreDevice=true
+storeCode=A001
+```
+
+### Human Session
+
+也應由 Server 驗證獨立 Human Session / token。
+
+Device Binding Cookie 與 Human Session Cookie 即使同屬一個 domain，也應視為不同 state semantics；Human logout 不應刪除 Device Binding。
 
 ---
 
-## 5. State 如何變動
+## 8. State 如何變動
 
-狀態應由 **Event** 驅動，而不是任意散落的變數修改。
-
-### BOOT
+### BOOT / Resolve Device Binding
 
 ```text
-Browser opens Web App
-→ BOOT
-→ request / resolve Store Context
+BOOT
+→ RESOLVE_DEVICE_BINDING
 ```
 
-結果之一：
+結果：
 
 ```text
-STORE_CONTEXT_RESOLVED → GENERAL_MODE
-STORE_CONTEXT_NONE     → PERSONAL_ENTRY
+DEVICE_BINDING_RESOLVED → GENERAL_MODE
+DEVICE_UNBOUND          → PERSONAL_ENTRY
 ```
-
-Production 中 Store Context 的可信結果應由 Server / Enterprise Adapter 驗證。
 
 ---
 
-### Request Sensitive Report
+### First-time Store Device Binding
 
-Client 事件：
-
-```text
-REQUEST_SENSITIVE
-```
-
-如果沒有有效 Human Session：
+Client：
 
 ```text
-→ HUMAN_AUTH_REQUIRED
+REQUEST_DEVICE_BIND
 ```
 
-Client 只能「要求登入」，不能自己把 `authenticated=true`。
+Server：
+
+```text
+→ STORE_ACCOUNT_AUTH_REQUIRED
+→ Google Workspace store account verification
+→ STORE_ACCOUNT_AUTH_SUCCESS
+→ StoreAccountResolver
+→ storeCode
+→ DEVICE_BINDING_CREATED
+→ verifiedStoreContext
+→ GENERAL_MODE
+```
+
+若 mapping 失敗：
+
+```text
+STORE_ACCOUNT_MAPPING_DENIED
+→ no binding
+```
 
 ---
 
 ### Human Authentication
 
 ```text
-Enterprise SSO / IdP
+REQUEST_SENSITIVE
+→ HUMAN_AUTH_REQUIRED
 → AUTH_SUCCESS
-→ Server 建立 Human Identity
-```
-
-接著：
-
-```text
-AuthorizationProvider
-→ user_id → role + allowed_store_codes
-```
-
-結果：
-
-```text
-AUTHORIZATION_RESOLVED
-or
-AUTHORIZATION_DENIED
+→ Human Identity
+→ AuthorizationProvider
+→ role + allowed_store_codes
+→ SENSITIVE_MODE if guard passes
 ```
 
 ---
 
-### Selected Store Change
-
-Client 可以：
+### Human Logout / Timeout
 
 ```text
-CHANGE_STORE(B001)
-```
-
-Client State 可立即變成：
-
-```text
-selectedStoreCode=B001
-```
-
-但真正資料請求必須再次執行：
-
-```text
-requestedStoreCode in allowedStoreCodes
-```
-
-因此 Client change 不等於 Authorization change。
-
----
-
-### Logout / Idle Timeout
-
-Human logout 或 idle timeout 應由 Server Session State 生效。
-
-共用 A 店 WebSC：
-
-```text
-Before:
-verifiedStoreContext=A001
-human=USER-001
-allowedStores=[A001,B001]
-sensitiveSession=ACTIVE
-
-IDLE_TIMEOUT
-
-After:
-verifiedStoreContext=A001    ← keep
-human=null                   ← clear
-allowedStores=[]             ← clear
-sensitiveSession=INACTIVE    ← clear
-view=GENERAL_MODE
-```
-
-這就是：
-
-```text
-logoutHuman() != logoutStoreContext()
+HUMAN_LOGOUT / IDLE_TIMEOUT
+→ clear Human Identity
+→ clear Authorization
+→ clear Sensitive Session
+→ KEEP Device Binding
+→ if bound: GENERAL_MODE
+→ if unbound: PERSONAL_ENTRY
 ```
 
 ---
 
-## 6. Reference Production Flow
+### Device Unbind
+
+必須是另一個 event：
 
 ```text
-Browser / Web App
-────────────────────────────
-Client Interaction State
-- requestedView
-- selectedStoreCode
-- UX preference
-        │
-        │ request / event
-        ▼
-Server / BFF / Session Layer
-────────────────────────────
-Authoritative State
-- verified Store Context
-- Human Identity
-- Authentication
-- Role
-- Allowed Stores
-- Sensitive Session / Expiry
-        │
-        │ authorized request
-        ▼
-Data / BI Layer
-────────────────────────────
-Final Enforcement
-- BigQuery RLS / Authorized View / ACL
-- requestedStore in allowedStores
-- Looker Studio presentation
+UNBIND_DEVICE
+→ revoke / remove Device Binding
+→ verifiedStoreContext=null
+```
+
+此事件的 Production 授權策略仍屬 TBD，不應由一般 Human Logout 暗中觸發。
+
+---
+
+## 9. 「同一 Google 帳號」不代表同一 State
+
+即使最後出現：
+
+```text
+Store Binding Google Account
+=
+Human Login Google Account
+```
+
+兩次驗證仍有不同 purpose：
+
+```text
+Binding Ceremony
+→ 建立 Store Device Binding
+
+Human Ceremony
+→ 建立 Human Sensitive Session
+```
+
+因此 state lifecycle 不能合併。
+
+另外，如果該 account 是多人共用門市帳號，它無法唯一證明自然人；若業務要求 person-level ACL，Human Ceremony 仍需取得唯一 `userId`。
+
+---
+
+## 10. Reference Production Flow
+
+```text
+                 ┌──────────────────────────┐
+                 │ Browser / Web App        │
+                 │ interaction / requests   │
+                 └────────────┬─────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────┐
+│ Server / BFF / Session                              │
+│                                                      │
+│ Store Device Binding        Human Sensitive Session │
+│ bindingId                    userId                  │
+│ verifiedStoreContext        role                    │
+│                              allowedStores           │
+│                              expiry                  │
+└─────────────────────────┬────────────────────────────┘
+                          │
+                          ▼
+             ┌──────────────────────────┐
+             │ Data / BI Layer          │
+             │ final row access guard   │
+             └──────────────────────────┘
 ```
 
 ---
 
-## 7. Sample 與 Production 的差異
+## 11. Sample 與 Production 的差異
 
-目前 GitHub Pages Sample 為純靜態網站，因此：
+GitHub Pages Sample 是純靜態網站，因此 Device Binding / Human Session 都只能 Mock 在 Browser。
 
-```text
-MACHINE_SPEC
-runtime state
-mock authentication
-mock authorization
-```
-
-全部在 Browser JS 執行。
-
-這是為了讓分析團隊與 PIC 能操作、理解與 Review 狀態轉換。
-
-它只模擬 Production Contract，不代表正式安全架構。
-
-正式落地時應保留：
+Sample 的目的，是讓 PIC 看見兩個 state domain 的**語意與生命週期**：
 
 ```text
-States
-Events
-Transitions
-Guards
-Business invariants
-Adapter contracts
+Mock Device Binding
+Mock Human Session
+Mock Authorization
 ```
 
-但把可信狀態的 ownership 移到 Server / Data Layer。
+Production 必須把可信 state ownership 移到 Server。
 
----
-
-## 8. 最小不可違反原則
-
-```text
-Client may propose state.
-Client may not grant itself authorization.
-
-Server owns identity truth.
-Server owns authorization truth.
-
-Data layer must independently enforce row scope.
-
-Selected Store is a request.
-Allowed Stores is authorization.
-
-Cookie presence is not authorization unless verified by trusted server logic.
-
-SSO success is identity, not report access.
-```
+詳細 Device Binding 規格：`docs/07-store-device-binding-v0.3.md`
