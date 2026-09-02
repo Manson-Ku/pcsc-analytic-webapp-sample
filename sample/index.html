@@ -30,6 +30,11 @@
 
       <section class="status-grid" aria-label="Current application contexts">
         <article class="status-card">
+          <span class="status-label">Flow State</span>
+          <strong id="flow-context">BOOT</strong>
+          <small>目前狀態機所在節點</small>
+        </article>
+        <article class="status-card">
           <span class="status-label">Store Context</span>
           <strong id="store-context">解析中…</strong>
           <small>目前裝置 / session 代表哪一家店</small>
@@ -155,6 +160,41 @@
             </div>
           </section>
         </section>
+
+        <aside class="state-inspector" aria-label="State machine inspector">
+          <div class="inspector-heading">
+            <div>
+              <div class="eyebrow">STATE MACHINE INSPECTOR</div>
+              <h2>狀態機</h2>
+            </div>
+            <span class="runtime-chip">CLIENT-SIDE SAMPLE</span>
+          </div>
+
+          <p class="inspector-note">
+            Sample 狀態機在 Browser 執行；正式 Authorization / RLS 必須由可信任的 server / data layer 再驗證。
+          </p>
+
+          <div class="inspector-tabs" role="tablist" aria-label="State inspector views">
+            <button class="inspector-tab active" data-inspector-tab="current">Current State</button>
+            <button class="inspector-tab" data-inspector-tab="machine">Machine JSON</button>
+            <button class="inspector-tab" data-inspector-tab="guards">Guards</button>
+          </div>
+
+          <section class="inspector-panel" data-inspector-panel="current">
+            <div class="json-title">LIVE RUNTIME STATE</div>
+            <pre id="current-state-json" class="json-view"></pre>
+          </section>
+
+          <section class="inspector-panel hidden" data-inspector-panel="machine">
+            <div class="json-title">REFERENCE MACHINE SPEC</div>
+            <pre id="machine-spec-json" class="json-view"></pre>
+          </section>
+
+          <section class="inspector-panel hidden" data-inspector-panel="guards">
+            <div class="json-title">LIVE GUARD EVALUATION</div>
+            <pre id="guard-state-json" class="json-view"></pre>
+          </section>
+        </aside>
       </section>
 
       <section class="event-log-section">
@@ -169,7 +209,7 @@
       </section>
 
       <footer>
-        Reference Spec v0.1 · Production SSO / IAM / RLS implementation is intentionally out of scope.
+        Reference Spec v0.1 · Browser state machine is demonstrative; production SSO / IAM / RLS enforcement is intentionally out of scope.
       </footer>
     </main>
 
