@@ -1,8 +1,8 @@
-# PCSC Analytic Web App｜Executable Reference Specification v0.1
+# PCSC Analytic Web App｜Executable Reference Specification v0.2
 
 Status: `REFERENCE / REVIEW`  
 Type: `Executable Requirement Specification`  
-SSOT: 本文件定義業務需求、驗收場景與責任邊界；`sample/` 是本規格的可操作示範；`docs/` 保存詳細狀態機與介面說明。
+SSOT: 本文件定義業務需求、驗收場景、State Ownership 與責任邊界；`sample/` 是本規格的可操作示範；`docs/` 保存詳細狀態機與介面說明。
 
 > 本規格不是 Production IAM、BigQuery RLS 或 Looker Studio 實作方案。它的目的，是把分析團隊的業務場景翻譯成 PIC / 開發團隊可以實作與驗收的明確 Contract。
 
@@ -105,6 +105,176 @@ Selected Store must be inside Allowed Stores
 SSO success does not imply report authorization
 UI filtering does not replace data-layer authorization
 ```
+
+---
+
+## 3A. State Machine / Ownership / Runtime Model
+
+### 3A-01｜這裡所稱 State Machine 是什麼
+
+State Machine 不是單一 JSON，也不是一個登入 Boolean，而是：
+
+```text
+States
++ Events
++ Transitions
++ Guards
++ Context
++ Ownership rules
+```
+
+Sample Web 右側 `State Machine Inspector` 會同步顯示目前 Runtime State、Reference Machine JSON、Ownership 與 Guard evaluation。
+
+### 3A-02｜Production 必須拆成三層 State Responsibility
+
+```text
+Browser / Web App
+────────────────────
+Client Interaction State
+- requestedView
+- selectedStoreCode
+- UI filters / UX preference
+        │
+        ▼
+Server / BFF / Session Layer
+────────────────────
+Authoritative Identity / Authorization State
+- verified Store Context
+- Human Identity
+- authentication status
+- role
+- allowedStoreCodes
+- sensitive session / expiry
+        │
+        ▼
+Trusted Data / BI Layer
+────────────────────
+Final row-access enforcement
+- requestedStoreCode in allowedStoreCodes
+- BigQuery RLS / Authorized View / ACL
+- Looker Studio presentation
+```
+
+核心原則：
+
+> **Client owns interaction state; Server owns identity and authorization truth; Data layer owns final row-access enforcement.**
+
+### 3A-03｜Client 可以改什麼
+
+Client 可以直接改：
+
+```text
+requestedView
+selectedStoreCode
+lastSelectedStore
+UI filter
+navigation state
+```
+
+也可以將非機敏 Preference 保存於：
+
+```text
+memory
+sessionStorage
+localStorage
+non-sensitive cookie
+URL route/query
+```
+
+但 Client 提出的狀態只是「想做什麼」，不是「有權做什麼」。
+
+例如：
+
+```text
+selectedStoreCode=B001
+```
+
+語意是：
+
+```text
+Browser requests B001
+```
+
+不是：
+
+```text
+Browser is authorized for B001
+```
+
+### 3A-04｜Server 必須擁有什麼真相
+
+以下狀態不得由 Browser 自行宣告為真：
+
+```text
+verifiedStoreContext
+human.userId
+authenticated
+role
+allowedStoreCodes
+sensitiveSession.active
+sensitiveSession.expiresAt
+```
+
+它們應由 Enterprise SSO、Google Workspace Identity、AOM / employee mapping、Authorization SSOT、Server Session 等可信來源建立或驗證。
+
+### 3A-05｜Cookie 原則
+
+UX Preference Cookie 可以由 Client 調整，例如：
+
+```text
+preferred_store=A001
+last_report=sales
+```
+
+安全 Session 不應採用可被 Browser 任意修改後直接相信的：
+
+```text
+role=STORE_MANAGER
+allowedStores=A001,B001
+```
+
+正式 Session 建議滿足等效安全原則：
+
+```text
+opaque session id
+HttpOnly
+Secure
+SameSite
+server validation
+```
+
+若採 signed / encrypted token，也必須由 Server 驗證完整性、有效期與撤銷邏輯。
+
+### 3A-06｜State 如何變動
+
+State 應由 Event 驅動：
+
+```text
+BOOT
+→ STORE_CONTEXT_RESOLVED / STORE_CONTEXT_NONE
+
+REQUEST_SENSITIVE
+→ HUMAN_AUTH_REQUIRED
+
+AUTH_SUCCESS
+→ HUMAN_AUTHENTICATED
+
+AUTHORIZATION_RESOLVED
+→ AUTHORIZATION_RESOLVED state
+
+ENTER_SENSITIVE + guard pass
+→ SENSITIVE_MODE
+
+CHANGE_STORE(B001)
+→ Client selectedStoreCode=B001
+→ Data request still requires server/data guard
+
+HUMAN_LOGOUT / IDLE_TIMEOUT
+→ clear Human / Authorization / Sensitive Session
+→ keep verified Store Context when present
+```
+
+詳細 State Ownership / Runtime / Mutation 規格：`docs/06-state-ownership-runtime-v0.2.md`
 
 ---
 
@@ -231,6 +401,8 @@ Web App 在進入資料 / BI 層前，需要能形成等效於下列的可信 Co
 
 欄位名稱可以由正式實作調整；語意不可消失。
 
+注意：Production 中這個 Context 不應被理解為「Browser 自己產生即可信」。`human` / `authorization` / verified store context 必須來自可信 Server / Enterprise Identity Layer；Browser 僅持有其可顯示的 projection。
+
 ---
 
 ## 6. Adapter Contracts
@@ -258,6 +430,7 @@ PIC / 正式實作團隊可以使用現有 Google Workspace、SSO、AOM、員工
 ```text
 Business Scenario
 Login / Authorization State Machine
+State Ownership / Runtime Contract
 Store Context
 Human Identity Contract
 Allowed Stores Contract
@@ -273,6 +446,7 @@ Acceptance Scenarios
 Google Workspace / Enterprise SSO
 AOM / Employee / Store Mapping
 Production Session / Token
+Server-side authoritative state
 Server-side authorization
 BigQuery RLS / Authorized View / existing ACL
 Looker Studio Data Source / Embed / Report Integration
@@ -280,7 +454,10 @@ Production Audit / Logging
 Device Trust / MDM (if required)
 ```
 
-詳細說明：`docs/05-report-data-boundary-v0.1.md`
+詳細說明：
+
+- `docs/05-report-data-boundary-v0.1.md`
+- `docs/06-state-ownership-runtime-v0.2.md`
 
 ---
 
@@ -316,6 +493,7 @@ A04 現有 SSO / Login 架構與可重用介面
 A05 WebSC / 平板既有裝置管理能力
 A06 Human Session idle timeout 正式時間
 A07 BigQuery / Looker Studio 正式 Enforcement 架構
+A08 Production Server Session / BFF / token 實作形式
 ```
 
 詳細追蹤：`docs/04-assumption-register-v0.1.md`
@@ -333,10 +511,12 @@ A07 BigQuery / Looker Studio 正式 Enforcement 架構
 Review：
 
 1. Core Invariants 是否可由既有技術架構滿足。
-2. 三個 Provider 各自可以接哪個既有系統。
-3. `allowed_store_codes` 應由哪個 SSOT 提供。
-4. 正式資料層如何 enforce `requested_store_code ∈ allowed_store_codes`。
-5. Human Session timeout 後如何確保 BI / Looker 不再沿用舊授權。
+2. Client / Server / Data Layer 的 State Ownership 是否可映射到既有架構。
+3. 三個 Provider 各自可以接哪個既有系統。
+4. `allowed_store_codes` 應由哪個 SSOT 提供。
+5. 正式資料層如何 enforce `requested_store_code ∈ allowed_store_codes`。
+6. Human Session timeout 後如何確保 BI / Looker 不再沿用舊授權。
+7. 哪些 Browser cookie / storage 只是 Preference，哪些 Session 必須由 Server 驗證。
 
 ---
 
@@ -345,7 +525,7 @@ Review：
 規格優先順序：
 
 ```text
-1. SPEC.md                ← Business / Acceptance SSOT
+1. SPEC.md                ← Business / Acceptance / Ownership SSOT
 2. sample/                ← Executable behavior reference
 3. docs/                  ← Detailed technical explanation
 4. Production code       ← PIC / implementation team
@@ -358,7 +538,7 @@ Review：
 ## 12. Version
 
 ```text
-Spec Version: v0.1
+Spec Version: v0.2
 Maturity: Reference / Review
 Production Ready: NO
 ```
