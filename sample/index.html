@@ -1,365 +1,228 @@
 <!doctype html>
 <html lang="zh-Hant">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>PCSC Analytic Web App｜登入與門市裝置綁定 Sample</title>
-    <link rel="stylesheet" href="./styles.css" />
-  </head>
-  <body>
-    <main class="app-shell">
-      <header class="topbar">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PCSC Analytic Web App｜Reference Architecture v0.4</title>
+  <meta name="description" content="PCSC Analytic Web App：Device Binding 與 GDS / BigQuery RLS 的簡化 Reference Architecture。" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <div class="eyebrow">REFERENCE ARCHITECTURE · v0.4</div>
+        <h1>PCSC Analytic Web App</h1>
+        <p>Web Device Binding 與 GDS / BigQuery 權限拆開處理。</p>
+      </div>
+      <span class="badge">SIMPLIFIED</span>
+    </header>
+
+    <nav class="anchor-nav" aria-label="頁面導覽">
+      <a href="#architecture">架構</a>
+      <a href="#binding">Device Binding</a>
+      <a href="#profiles">GDS Report Profiles</a>
+      <a href="#scenarios">使用情境</a>
+      <a href="#experiment">實驗結果</a>
+    </nav>
+
+    <section id="architecture" class="section">
+      <div class="section-heading">
         <div>
-          <div class="eyebrow">EXECUTABLE REFERENCE SPEC</div>
-          <h1>PCSC Analytic Web App</h1>
-          <p>門市 Device Binding、Human Session、Authorization 與報表權限場景示範</p>
+          <div class="eyebrow">CURRENT DECISION</div>
+          <h2>現在只剩兩條責任鏈</h2>
         </div>
-        <div class="mock-badge">DEMO / MOCK DATA</div>
-      </header>
+      </div>
 
-      <section class="scenario-panel" aria-label="Demo scenario controls">
+      <div class="split-flow">
+        <article class="flow-card">
+          <span>WEB APP STATE</span>
+          <strong>Device Binding → Store Context</strong>
+          <p>Web 只負責知道這台 Browser / Device 代表哪一家門市，以及目前呈現哪個 Web Surface。</p>
+        </article>
+        <div class="flow-arrow">+</div>
+        <article class="flow-card accent">
+          <span>GDS ACCESS</span>
+          <strong>Google → GDS → BigQuery RLS</strong>
+          <p>GDS viewer 由 Browser Google Session 決定；需要 row-level security 時交給 BigQuery。</p>
+        </article>
+      </div>
+
+      <pre class="diagram">Web
+├─ Device Binding
+│  └─ Store Context
+│
+└─ Analytics Surface
+   └─ Restricted GDS
+      └─ Google Viewer
+         └─ BigQuery IAM
+            └─ SESSION_USER()
+               └─ RLS</pre>
+    </section>
+
+    <section id="binding" class="section">
+      <div class="section-heading">
         <div>
-          <strong>入口情境</strong>
-          <span>切換後重新啟動狀態機；差異是 App BOOT 時是否已有有效的 Store Device Binding。</span>
+          <div class="eyebrow">WEB DEVICE BINDING</div>
+          <h2>Device Binding 不需要綁死 Google Auth</h2>
         </div>
-        <div class="scenario-actions">
-          <button class="secondary active" data-scenario="bound-store-a">
-            已綁定 A 店的裝置
-            <small>之前已用 A 店門市 Google 帳號完成 Binding</small>
-          </button>
-          <button class="secondary" data-scenario="unbound">
-            尚未綁定的裝置
-            <small>手機／新電腦／新 Browser 等，沒有 Store Context</small>
-          </button>
+        <span class="chip green">SERVER-SIDE TRUTH</span>
+      </div>
+
+      <div class="grid two">
+        <article class="card">
+          <h3>Device Binding 真正要回答的問題</h3>
+          <pre class="mini-diagram">這個 Browser / Device
+→ 應綁定哪個 storeCode？</pre>
+          <p>只要可信的 Web / Server 流程能 resolve <code>storeCode</code>，就能建立 Binding。</p>
+        </article>
+
+        <article class="card">
+          <h3>可用的 Store Resolution 來源</h3>
+          <ul>
+            <li>Web native account mapping</li>
+            <li>Enterprise SSO mapping</li>
+            <li>Google Workspace mapping</li>
+            <li>Admin provisioning</li>
+          </ul>
+          <p class="muted">Google Workspace Login 可以是一種方法，但不是 protocol requirement。</p>
+        </article>
+      </div>
+
+      <div class="callout">
+        <strong>簡化後：</strong>
+        如果 Web native account 已能可信地 resolve <code>STORE_A</code>，就直接建立 Device Binding；不需要為 Binding 再多做一次 Google OAuth。
+      </div>
+    </section>
+
+    <section id="profiles" class="section">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow">GDS REPORT PROFILES</div>
+          <h2>不同情境，嵌入不同設定的 GDS Report</h2>
         </div>
-      </section>
+      </div>
 
-      <section class="status-grid" aria-label="Current application contexts">
-        <article class="status-card">
-          <span class="status-label">Flow State</span>
-          <strong id="flow-context">BOOT</strong>
-          <small>目前狀態機所在節點</small>
+      <div class="profile-grid">
+        <article class="profile-card">
+          <div class="profile-title">GENERAL_PUBLIC</div>
+          <p>只有真正可公開的一般資料才使用。</p>
+          <dl>
+            <div><dt>Sharing</dt><dd>Public / Anyone with link</dd></div>
+            <div><dt>Embedding</dt><dd>Enabled</dd></div>
+            <div><dt>Google viewer login</dt><dd>No</dd></div>
+            <div><dt>Data credentials</dt><dd>Owner / Service Account</dd></div>
+            <div><dt>BigQuery RLS</dt><dd>No</dd></div>
+          </dl>
+          <div class="warning-small">Device Binding 不能保護一份本身可直接開啟的 public Report。</div>
         </article>
-        <article class="status-card">
-          <span class="status-label">Device Binding</span>
-          <strong id="binding-context">解析中…</strong>
-          <small>這個 Browser / Device 是否已綁定門市</small>
+
+        <article class="profile-card">
+          <div class="profile-title">GENERAL_RESTRICTED</div>
+          <p>一般報表仍需要 Google gate，但不需要每個 viewer 看到不同 rows。</p>
+          <dl>
+            <div><dt>Sharing</dt><dd>Restricted / Workspace</dd></div>
+            <div><dt>Embedding</dt><dd>Enabled</dd></div>
+            <div><dt>Google viewer login</dt><dd>Yes</dd></div>
+            <div><dt>Data credentials</dt><dd>Owner / Service Account</dd></div>
+            <div><dt>BigQuery RLS</dt><dd>Optional</dd></div>
+          </dl>
+          <div class="note-small">此處 Google Auth 是 GDS access policy，不是 Device Binding。</div>
         </article>
-        <article class="status-card">
-          <span class="status-label">Store Context</span>
-          <strong id="store-context">解析中…</strong>
-          <small>由有效 Device Binding 解析出的門市</small>
+
+        <article class="profile-card featured">
+          <div class="profile-title">ANALYTICS_RLS</div>
+          <p>進階 / 機敏分析，同一份 Report 依 Google viewer 顯示不同 row scope。</p>
+          <dl>
+            <div><dt>Sharing</dt><dd>Restricted</dd></div>
+            <div><dt>Embedding</dt><dd>Enabled</dd></div>
+            <div><dt>Google viewer login</dt><dd>Yes</dd></div>
+            <div><dt>Data credentials</dt><dd>Viewer's Credentials</dd></div>
+            <div><dt>BigQuery IAM</dt><dd>Required</dd></div>
+            <div><dt>BigQuery RLS</dt><dd>Required</dd></div>
+            <div><dt>RLS identity</dt><dd>SESSION_USER()</dd></div>
+          </dl>
         </article>
-        <article class="status-card">
-          <span class="status-label">Human Identity</span>
-          <strong id="human-context">Anonymous</strong>
-          <small>目前是否已辨識機敏操作人員</small>
-        </article>
-        <article class="status-card">
-          <span class="status-label">Authorization</span>
-          <strong id="auth-context">Unresolved</strong>
-          <small>此人被授權查看哪些門市</small>
-        </article>
-        <article class="status-card">
-          <span class="status-label">Selected Store</span>
-          <strong id="selected-context">—</strong>
-          <small>目前 UI 想查看的門市</small>
-        </article>
-      </section>
+      </div>
+    </section>
 
-      <section class="workspace">
-        <aside class="sidebar">
-          <div class="sidebar-title">場景操作</div>
+    <section id="scenarios" class="section">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow">SCENARIOS</div>
+          <h2>Web 在不同情境下要載入哪種 Report</h2>
+        </div>
+      </div>
 
-          <button id="general-nav" class="nav-button active">一般門市報表</button>
-          <button id="sensitive-nav" class="nav-button">進階 / 機敏報表</button>
-
-          <div id="human-panel" class="human-panel hidden">
-            <div class="panel-title">模擬 Human 驗證</div>
-            <p>這是另一個 Session，與門市 Device Binding 分離。</p>
-            <button class="identity-button" data-user="manager">
-              王店長
-              <small>STORE_MANAGER · Allowed A/B</small>
-            </button>
-            <button class="identity-button" data-user="advisor">
-              陳區顧問
-              <small>AREA_ADVISOR · Allowed A/B/C/D</small>
-            </button>
-            <button class="identity-button muted" data-user="unauthorized">
-              未授權公司使用者
-              <small>OTHER · Allowed none</small>
-            </button>
-          </div>
-
-          <button id="logout-human" class="text-button hidden">退出 Human Session</button>
-          <button id="unbind-device" class="text-button hidden">解除門市 Device Binding（Demo）</button>
-        </aside>
-
-        <section class="content-area">
-          <div id="message" class="message hidden"></div>
-
-          <section id="general-view" class="report-view">
-            <div class="view-heading">
-              <div>
-                <div class="eyebrow">GENERAL MODE</div>
-                <h2 id="general-title">一般門市報表</h2>
-              </div>
-              <span class="access-chip general">Device Binding → Store Context</span>
-            </div>
-
-            <div id="general-empty" class="empty-state hidden">
-              <h3>這個裝置目前沒有門市 Device Binding</h3>
-              <p>
-                可以先用門市 Google Workspace 帳號完成一次綁定，讓這個 Browser / Device 之後直接帶出該店的一般報表；
-                也可以不綁定，直接以個人身分登入查看自己被授權的機敏報表。
-              </p>
-              <div class="empty-actions">
-                <button id="bind-store-a" class="primary">用 A 店門市 Google 帳號綁定此裝置（Mock）</button>
-                <button id="personal-login-cta" class="secondary">不綁定，直接做個人登入</button>
-              </div>
-            </div>
-
-            <div id="general-data" class="report-grid">
-              <article class="metric-card">
-                <span>本日來客指標</span>
-                <strong>1,284</strong>
-                <small>DEMO DATA</small>
-              </article>
-              <article class="metric-card">
-                <span>一般營運指標</span>
-                <strong>正常</strong>
-                <small>DEMO DATA</small>
-              </article>
-              <article class="metric-card wide">
-                <span>門市摘要</span>
-                <p>
-                  此區代表「門市裝置已綁定，所以知道這是 A 店」後可顯示的一般資料。
-                  這裡不需要知道目前是哪一位員工，也不等於取得任何 Human Sensitive Authorization。
-                </p>
-              </article>
-            </div>
-          </section>
-
-          <section id="sensitive-view" class="report-view hidden">
-            <div class="view-heading">
-              <div>
-                <div class="eyebrow">SENSITIVE MODE</div>
-                <h2>機敏分析報表</h2>
-              </div>
-              <span class="access-chip sensitive">Human + Authorization</span>
-            </div>
-
-            <div class="sensitive-toolbar">
-              <label for="store-select">目前查看門市</label>
-              <select id="store-select"></select>
-              <span id="role-chip" class="role-chip"></span>
-            </div>
-
-            <div class="report-grid">
-              <article class="metric-card">
-                <span>營收達成率</span>
-                <strong id="sensitive-metric-1">—</strong>
-                <small>DEMO SENSITIVE DATA</small>
-              </article>
-              <article class="metric-card">
-                <span>區域排名</span>
-                <strong id="sensitive-metric-2">—</strong>
-                <small>DEMO SENSITIVE DATA</small>
-              </article>
-              <article class="metric-card wide">
-                <span>權限說明</span>
-                <p id="authorization-explain"></p>
-              </article>
-            </div>
-
-            <div class="timeout-box">
-              <div>
-                <strong>Human Session timeout demo</strong>
-                <p>模擬店長忘記退出：只清除 Human Session / Authorization，不解除門市 Device Binding。</p>
-              </div>
-              <button id="simulate-timeout" class="secondary">模擬 Human Timeout</button>
-            </div>
-          </section>
-        </section>
-
-        <aside class="state-inspector" aria-label="State machine inspector">
-          <div class="inspector-heading">
-            <div>
-              <div class="eyebrow">STATE MACHINE INSPECTOR</div>
-              <h2>狀態機</h2>
-            </div>
-            <span class="runtime-chip">CLIENT-SIDE MOCK</span>
-          </div>
-
-          <p class="inspector-note">
-            Sample 為靜態頁，因此把 Device Binding / Human Session 都 Mock 在 Browser；正式環境必須把這些可信 state 放在 Server。
-          </p>
-
-          <div class="inspector-tabs" role="tablist" aria-label="State inspector views">
-            <button class="inspector-tab active" data-inspector-tab="current">Current State</button>
-            <button class="inspector-tab" data-inspector-tab="machine">Machine JSON</button>
-            <button class="inspector-tab" data-inspector-tab="ownership">Ownership</button>
-            <button class="inspector-tab" data-inspector-tab="storage">Storage</button>
-            <button class="inspector-tab" data-inspector-tab="integration">Integration Map</button>
-            <button class="inspector-tab" data-inspector-tab="guards">Guards</button>
-          </div>
-
-          <section class="inspector-panel" data-inspector-panel="current">
-            <div class="json-title">LIVE RUNTIME STATE</div>
-            <pre id="current-state-json" class="json-view"></pre>
-          </section>
-
-          <section class="inspector-panel hidden" data-inspector-panel="machine">
-            <div class="json-title">REFERENCE MACHINE SPEC</div>
-            <pre id="machine-spec-json" class="json-view"></pre>
-          </section>
-
-          <section class="inspector-panel hidden" data-inspector-panel="ownership">
-            <div class="json-title">PRODUCTION STATE OWNERSHIP</div>
-            <pre class="json-view">{
-  "client": {
-    "owns": [
-      "requestedView",
-      "selectedStoreCode",
-      "UI preference",
-      "request bind / unbind"
-    ],
-    "trust": "PROPOSED INTERACTION STATE"
-  },
-  "server": {
-    "owns": {
-      "storeDevice": [
-        "deviceBindingId",
-        "deviceBindingStatus",
-        "verifiedStoreContext"
-      ],
-      "human": [
-        "humanUserId",
-        "authenticationStatus",
-        "role",
-        "allowedStoreCodes",
-        "sensitiveSessionExpiry"
-      ]
-    },
-    "invariant": "logoutHuman != unbindDevice",
-    "trust": "AUTHORITATIVE"
-  },
-  "dataLayer": {
-    "owns": "final row access",
-    "guard": "requestedStoreCode in allowedStoreCodes"
-  },
-  "bindingCeremony": {
-    "proof": "verified store Google Workspace identity",
-    "result": "server-side Device Binding",
-    "note": "Google login session itself is not the Device Binding"
-  }
-}</pre>
-          </section>
-
-          <section class="inspector-panel hidden" data-inspector-panel="storage">
-            <div class="json-title">REFERENCE STORAGE RECOMMENDATION</div>
-            <pre class="json-view">{
-  "note": "建議的是 state 類型與 persistence class，不綁死 Redis / SQL / Firestore 等產品",
-  "clientInteractionState": {
-    "examples": ["requestedView", "selectedStoreCode", "UI filters"],
-    "recommended": "Browser memory / route; sessionStorage only when useful",
-    "durability": "ephemeral",
-    "securityTruth": false
-  },
-  "uxPreference": {
-    "examples": ["lastSelectedStore", "sidebar state"],
-    "recommended": "localStorage or non-sensitive cookie",
-    "durability": "optional",
-    "securityTruth": false
-  },
-  "storeDeviceBinding": {
-    "recommended": "durable server-side Binding Store / enterprise DB",
-    "browser": "opaque binding/session id only; preferably HttpOnly + Secure + SameSite",
-    "durability": "long-lived until revoke / expiry",
-    "securityTruth": true
-  },
-  "humanSensitiveSession": {
-    "recommended": "server-side Session Store or server-verified IdP session/token",
-    "browser": "opaque session id / verified token",
-    "durability": "short-lived + idle timeout",
-    "securityTruth": true
-  },
-  "authorization": {
-    "recommended": "AOM / HR / ACL authoritative SSOT; optional short-TTL server cache",
-    "durability": "re-resolvable, avoid browser persistence as truth",
-    "securityTruth": true
-  },
-  "storeAccountMapping": {
-    "recommended": "authoritative mapping table/service: Google identity → storeCode",
-    "securityTruth": true
-  },
-  "dataAccess": {
-    "recommended": "Trusted API / BigQuery RLS / Authorized View / existing ACL",
-    "purpose": "final row-scope enforcement"
-  }
-}</pre>
-          </section>
-
-          <section class="inspector-panel hidden" data-inspector-panel="integration">
-            <div class="json-title">MOCK → PRODUCTION REPLACEMENT MAP</div>
-            <pre class="json-view">{
-  "StoreAccountResolver": {
-    "question": "門市 Google Account 對應哪個 storeCode？",
-    "mock": "A 店 Google Account → A001",
-    "production": "GWS / AOM / PCSC mapping SSOT",
-    "output": "storeCode"
-  },
-  "StoreDeviceBindingProvider": {
-    "question": "目前 Browser / Device 是否已有有效門市綁定？",
-    "mock": "Browser JS state",
-    "production": "Server-side Binding Store / Session",
-    "output": "bindingId + status + storeCode"
-  },
-  "HumanIdentityProvider": {
-    "question": "現在操作機敏報表的人是誰？",
-    "mock": "王店長 / 陳區顧問 buttons",
-    "production": "Enterprise SSO / Google Workspace IdP",
-    "output": "stable userId"
-  },
-  "AuthorizationProvider": {
-    "question": "這個人能看哪些門市？",
-    "mock": "hard-coded allowedStoreCodes",
-    "production": "AOM / HR / ACL SSOT",
-    "output": "role + allowedStoreCodes[]"
-  },
-  "SensitiveDataGuard": {
-    "question": "這次資料請求能不能讀這家店？",
-    "mock": "client-side guard",
-    "production": "Trusted API + BQ RLS / Authorized View / ACL",
-    "rule": "requestedStoreCode in allowedStoreCodes"
-  },
-  "implementationRule": "Replace adapters, preserve business state machine and invariants"
-}</pre>
-          </section>
-
-          <section class="inspector-panel hidden" data-inspector-panel="guards">
-            <div class="json-title">LIVE GUARD EVALUATION</div>
-            <pre id="guard-state-json" class="json-view"></pre>
-          </section>
-        </aside>
-      </section>
-
-      <section class="event-log-section">
-        <div class="view-heading compact">
+      <div class="scenario-list">
+        <article class="scenario">
+          <div class="scenario-index">A</div>
           <div>
-            <div class="eyebrow">STATE TRACE</div>
-            <h2>狀態機事件</h2>
+            <h3>已綁定門市裝置 → 一般報表</h3>
+            <pre class="mini-diagram">BOOT → Binding=A001 → Store Context=A001 → GENERAL</pre>
+            <p>一般資料如果可直接公開，嵌 <strong>GENERAL_PUBLIC</strong>；如果仍需 Google gate，嵌 <strong>GENERAL_RESTRICTED</strong>。</p>
           </div>
-          <button id="clear-log" class="text-button">清除紀錄</button>
+        </article>
+
+        <article class="scenario">
+          <div class="scenario-index">B</div>
+          <div>
+            <h3>使用者進入進階分析</h3>
+            <pre class="mini-diagram">Open Analytics → ANALYTICS_RLS → Google Viewer → BigQuery RLS</pre>
+            <p>Web 不需要建立自己的 GDS Human Authorization state。Report 採 Restricted + Viewer's Credentials，資料層由 BigQuery IAM + RLS 控制。</p>
+          </div>
+        </article>
+
+        <article class="scenario">
+          <div class="scenario-index">C</div>
+          <div>
+            <h3>尚未綁定裝置</h3>
+            <pre class="mini-diagram">BOOT → Binding NONE → Trusted Web Flow → resolve storeCode → create Binding</pre>
+            <p>這一步本身不要求 Google Auth。Binding 完成後回到 Scenario A，再依資料敏感度選 GDS Report Profile。</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="experiment" class="section">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow">EXPERIMENT · 2026-09-22</div>
+          <h2>目前已驗證與下一個 POC</h2>
         </div>
-        <ol id="event-log" class="event-log"></ol>
-      </section>
+      </div>
 
-      <footer>
-        Reference Spec v0.3 · Store Google Account establishes Device Binding; Human Session and Device Binding have independent lifecycles.
-      </footer>
-    </main>
+      <div class="status-grid">
+        <div class="status pass"><b>PASS</b><span>Restricted GDS 可嵌入 Web</span></div>
+        <div class="status pass"><b>PASS</b><span>GDS viewer 來自 Browser Google Session</span></div>
+        <div class="status pass"><b>PASS</b><span>多帳號會出現 account selector</span></div>
+        <div class="status pass"><b>PASS</b><span>/embed/u/0/、/embed/u/1/ 可切換 slot</span></div>
+        <div class="status pass"><b>PASS</b><span>同頁 u/0 + u/1 實測有效</span></div>
+        <div class="status observed"><b>OBSERVED</b><span>第三方 Cookie 被阻擋時 embedded auth 失敗</span></div>
+        <div class="status todo"><b>TODO</b><span>Viewer's Credentials → SESSION_USER()</span></div>
+        <div class="status todo"><b>TODO</b><span>SESSION_USER() → BigQuery Row Access Policy</span></div>
+      </div>
 
-    <script src="./app.js"></script>
-  </body>
+      <div class="next-poc">
+        <span>NEXT POC</span>
+        <pre>Google Account A
+→ GDS ANALYTICS_RLS
+→ BigQuery SESSION_USER() = A
+→ RLS
+→ only A rows</pre>
+        <p>完成後再換 Account B 測同一份 Report / 同一張 Table。</p>
+      </div>
+
+      <div class="research-stop">
+        <strong>研究停止點</strong>
+        <p>不再深入 cookie 名稱、Web ↔ iframe postMessage、u/n ↔ email 永久 mapping。這些已不是下一階段核心。</p>
+      </div>
+    </section>
+
+    <footer>
+      <span>PCSC Analytic Web App Reference v0.4</span>
+      <a href="https://github.com/Manson-Ku/pcsc-analytic-webapp-sample">GitHub Repo</a>
+    </footer>
+  </main>
+</body>
 </html>
